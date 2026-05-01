@@ -245,7 +245,7 @@ async function handleUserSubmit() {
   try {
     if (mode.value === 'register') validateRegisterForm()
 
-    const result = await requestJson<LoginResponse>(mode.value === 'register' ? '/api/auth/register' : '/api/auth/login', {
+    const result = await requestJson<LoginResponse>(mode.value === 'register' ? '/api/auth/register' : '/api/auth/sessions', {
       method: 'POST',
       auth: false,
       body:
@@ -310,7 +310,7 @@ async function handleAdminSubmit() {
   adminMessage.value = ''
 
   try {
-    const result = await requestJson<AdminLoginResponse>('/api/admin/login', {
+    const result = await requestJson<AdminLoginResponse>('/api/admin/sessions', {
       method: 'POST',
       body: {
         username: adminUsername.value.trim(),

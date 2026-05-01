@@ -1,6 +1,5 @@
 package cn.zerolan.zerolanshop.util;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Component;
 
@@ -13,10 +12,13 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class RedisUtil {
 
-    @Autowired
-    private RedisTemplate<String, Object> redisTemplate;
+    private final RedisTemplate<String, Object> redisTemplate;
 
-    // ============================ String =============================
+    public RedisUtil(RedisTemplate<String, Object> redisTemplate) {
+        this.redisTemplate = redisTemplate;
+    }
+
+    // ============================ 字符串 =============================
 
     public void set(String key, Object value) {
         redisTemplate.opsForValue().set(key, value);
@@ -55,7 +57,7 @@ public class RedisUtil {
         return redisTemplate.getExpire(key, unit);
     }
 
-    // ============================ Hash =============================
+    // ============================ 哈希 =============================
 
     public void hSet(String key, String hashKey, Object value) {
         redisTemplate.opsForHash().put(key, hashKey, value);
@@ -81,7 +83,7 @@ public class RedisUtil {
         return redisTemplate.opsForHash().hasKey(key, hashKey);
     }
 
-    // ============================ List =============================
+    // ============================ 列表 =============================
 
     public Long lPush(String key, Object value) {
         return redisTemplate.opsForList().leftPush(key, value);
@@ -111,7 +113,7 @@ public class RedisUtil {
         return redisTemplate.opsForList().size(key);
     }
 
-    // ============================ Set =============================
+    // ============================ 集合 =============================
 
     public Long sAdd(String key, Object... members) {
         return redisTemplate.opsForSet().add(key, members);
@@ -133,7 +135,7 @@ public class RedisUtil {
         return redisTemplate.opsForSet().size(key);
     }
 
-    // ============================ ZSet =============================
+    // ============================ 有序集合 =============================
 
     public Boolean zAdd(String key, Object member, double score) {
         return redisTemplate.opsForZSet().add(key, member, score);

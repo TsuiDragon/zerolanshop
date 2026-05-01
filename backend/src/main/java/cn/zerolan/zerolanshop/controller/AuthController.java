@@ -6,42 +6,70 @@ import cn.zerolan.zerolanshop.domain.dto.LoginResponse;
 import cn.zerolan.zerolanshop.domain.dto.RegisterRequest;
 import cn.zerolan.zerolanshop.service.AuthService;
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
 
-    @Autowired
-    private AuthService authService;
+    private final AuthService authService;
 
+    public AuthController(AuthService authService) {
+        this.authService = authService;
+    }
+
+    /**
+     * POST /api/auth/login
+     * 兼容旧登录路径。新代码优先使用 POST /api/auth/sessions。
+     */
     @PostMapping("/login")
     public Result<LoginResponse> login(@RequestBody LoginRequest request) {
-        try {
-            LoginResponse response = authService.login(request);
-            return Result.success(response);
-        } catch (RuntimeException e) {
-            return Result.error(e.getMessage());
-        }
+        return createSession(request);
     }
 
+    /**
+     * POST /api/auth/sessions
+     * 创建前台采购端登录会话，成功后返回 JWT。
+     */
+    @PostMapping("/sessions")
+    public Result<LoginResponse> createSession(@RequestBody LoginRequest request) {
+        LoginResponse response = authService.login(request);
+        return Result.success(response);
+    }
+
+    /**
+     * POST /api/auth/register
+     * 注册前台采购端用户，成功后返回 JWT。
+     */
     @PostMapping("/register")
     public Result<LoginResponse> register(@RequestBody RegisterRequest request, HttpServletRequest servletRequest) {
-        try {
-            LoginResponse response = authService.register(request, getClientIp(servletRequest));
-            return Result.success(response);
-        } catch (RuntimeException e) {
-            return Result.error(e.getMessage());
-        }
+        LoginResponse response = authService.register(request, getClientIp(servletRequest));
+        return Result.success(response);
     }
 
-    @PostMapping("/logout")
+    /**
+     * DELETE /api/auth/sessions/current
+     * 删除当前登录会话。当前 JWT 是无状态方案，主要由前端清理本地 token。
+     */
+    @DeleteMapping("/sessions/current")
     public Result<Void> logout() {
         Long userId = (Long) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
         authService.logout(userId);
         return Result.success();
+    }
+
+    /**
+     * POST /api/auth/logout
+     * 兼容旧退出路径。
+     */
+    @PostMapping("/logout")
+    public Result<Void> legacyLogout() {
+        return logout();
     }
 
     private String getClientIp(HttpServletRequest request) {

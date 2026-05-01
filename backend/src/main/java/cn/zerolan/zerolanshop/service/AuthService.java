@@ -7,7 +7,6 @@ import cn.zerolan.zerolanshop.domain.entity.User;
 import cn.zerolan.zerolanshop.mapper.UserMapper;
 import cn.zerolan.zerolanshop.util.JwtUtil;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -18,15 +17,19 @@ import java.time.LocalDateTime;
 @Service
 public class AuthService {
 
-    @Autowired
-    private UserMapper userMapper;
+    private final UserMapper userMapper;
+    private final PasswordEncoder passwordEncoder;
+    private final JwtUtil jwtUtil;
 
-    @Autowired
-    private PasswordEncoder passwordEncoder;
+    public AuthService(UserMapper userMapper, PasswordEncoder passwordEncoder, JwtUtil jwtUtil) {
+        this.userMapper = userMapper;
+        this.passwordEncoder = passwordEncoder;
+        this.jwtUtil = jwtUtil;
+    }
 
-    @Autowired
-    private JwtUtil jwtUtil;
-
+    /**
+     * 前台采购端用户登录，支持用户名、邮箱或手机号。
+     */
     public LoginResponse login(LoginRequest request) {
         String account = normalize(request.getUsername());
         if (!StringUtils.hasText(account) || !StringUtils.hasText(request.getPassword())) {
@@ -52,6 +55,9 @@ public class AuthService {
         return buildLoginResponse(user);
     }
 
+    /**
+     * 注册前台采购端用户，并返回与登录一致的会话信息。
+     */
     public LoginResponse register(RegisterRequest request, String registerIp) {
         validateRegisterRequest(request);
 

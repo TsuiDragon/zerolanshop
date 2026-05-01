@@ -8,7 +8,6 @@ import cn.zerolan.zerolanshop.domain.dto.CategoryUpdateRequest;
 import cn.zerolan.zerolanshop.domain.entity.ProductCategory;
 import cn.zerolan.zerolanshop.mapper.ProductCategoryMapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -24,9 +23,15 @@ public class ProductCategoryService {
     private static final int STATUS_DISABLED = 0;
     private static final int STATUS_ENABLED = 1;
 
-    @Autowired
-    private ProductCategoryMapper productCategoryMapper;
+    private final ProductCategoryMapper productCategoryMapper;
 
+    public ProductCategoryService(ProductCategoryMapper productCategoryMapper) {
+        this.productCategoryMapper = productCategoryMapper;
+    }
+
+    /**
+     * 查询分类平铺列表，适用于后台表格筛选和简单管理操作。
+     */
     public List<CategoryResponse> list(Long parentId, Integer status, String name) {
         QueryWrapper<ProductCategory> wrapper = new QueryWrapper<>();
         if (parentId != null) {
@@ -46,6 +51,9 @@ public class ProductCategoryService {
                 .toList();
     }
 
+    /**
+     * 构建两级分类树，供后台管理和前台展示使用。
+     */
     public List<CategoryTreeResponse> tree() {
         QueryWrapper<ProductCategory> wrapper = new QueryWrapper<>();
         wrapper.orderByAsc("parent_id", "sort", "id");
@@ -76,6 +84,9 @@ public class ProductCategoryService {
         return CategoryResponse.from(getExistingCategory(id));
     }
 
+    /**
+     * 创建分类，并自动追加到同级分类末尾。
+     */
     public CategoryResponse create(CategoryCreateRequest request) {
         if (request == null) {
             throw new RuntimeException("Category request is required");
@@ -98,6 +109,9 @@ public class ProductCategoryService {
         return CategoryResponse.from(category);
     }
 
+    /**
+     * 更新分类字段，同时保持最多两级分类的层级约束。
+     */
     public CategoryResponse update(Long id, CategoryUpdateRequest request) {
         if (request == null) {
             throw new RuntimeException("Category request is required");
@@ -130,6 +144,9 @@ public class ProductCategoryService {
         return CategoryResponse.from(category);
     }
 
+    /**
+     * 更新分类状态。按当前业务约定，状态变更不级联影响子分类。
+     */
     public CategoryResponse updateStatus(Long id, CategoryStatusRequest request) {
         if (request == null) {
             throw new RuntimeException("Category status request is required");
@@ -141,6 +158,9 @@ public class ProductCategoryService {
         return CategoryResponse.from(category);
     }
 
+    /**
+     * 删除分类。有子分类的一级分类禁止删除。
+     */
     public void delete(Long id) {
         ProductCategory category = getExistingCategory(id);
         if (isRoot(category.getParentId()) && hasChildren(id)) {
@@ -173,6 +193,9 @@ public class ProductCategoryService {
         }
     }
 
+    /**
+     * 校验同级分类名称唯一；不同父级下允许出现相同分类名。
+     */
     private void validateSameParentName(Long currentId, Long parentId, String name) {
         QueryWrapper<ProductCategory> wrapper = new QueryWrapper<>();
         wrapper.eq("parent_id", parentId)
@@ -191,6 +214,9 @@ public class ProductCategoryService {
         return productCategoryMapper.selectCount(wrapper) > 0;
     }
 
+    /**
+     * 计算新分类排序号：当前同级最大 sort + 1。
+     */
     private Integer nextSort(Long parentId) {
         QueryWrapper<ProductCategory> wrapper = new QueryWrapper<>();
         wrapper.eq("parent_id", parentId)

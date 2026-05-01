@@ -6,7 +6,6 @@ import cn.zerolan.zerolanshop.domain.entity.Admin;
 import cn.zerolan.zerolanshop.mapper.AdminMapper;
 import cn.zerolan.zerolanshop.util.JwtUtil;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -16,15 +15,19 @@ import java.time.LocalDateTime;
 @Service
 public class AdminAuthService {
 
-    @Autowired
-    private AdminMapper adminMapper;
+    private final AdminMapper adminMapper;
+    private final PasswordEncoder passwordEncoder;
+    private final JwtUtil jwtUtil;
 
-    @Autowired
-    private PasswordEncoder passwordEncoder;
+    public AdminAuthService(AdminMapper adminMapper, PasswordEncoder passwordEncoder, JwtUtil jwtUtil) {
+        this.adminMapper = adminMapper;
+        this.passwordEncoder = passwordEncoder;
+        this.jwtUtil = jwtUtil;
+    }
 
-    @Autowired
-    private JwtUtil jwtUtil;
-
+    /**
+     * 后台运营端管理员登录。
+     */
     public AdminLoginResponse login(AdminLoginRequest request) {
         String username = normalize(request.getUsername());
         if (!StringUtils.hasText(username) || !StringUtils.hasText(request.getPassword())) {

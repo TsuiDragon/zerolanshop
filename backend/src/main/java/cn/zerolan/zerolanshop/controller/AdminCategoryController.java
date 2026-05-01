@@ -7,7 +7,6 @@ import cn.zerolan.zerolanshop.domain.dto.CategoryStatusRequest;
 import cn.zerolan.zerolanshop.domain.dto.CategoryTreeResponse;
 import cn.zerolan.zerolanshop.domain.dto.CategoryUpdateRequest;
 import cn.zerolan.zerolanshop.service.ProductCategoryService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -25,74 +24,77 @@ import java.util.List;
 @RequestMapping("/api/admin/categories")
 public class AdminCategoryController {
 
-    @Autowired
-    private ProductCategoryService productCategoryService;
+    private final ProductCategoryService productCategoryService;
 
+    public AdminCategoryController(ProductCategoryService productCategoryService) {
+        this.productCategoryService = productCategoryService;
+    }
+
+    /**
+     * GET /api/admin/categories
+     * 查询分类平铺列表，可按父级、状态、名称过滤。
+     */
     @GetMapping
     public Result<List<CategoryResponse>> list(
             @RequestParam(required = false) Long parentId,
             @RequestParam(required = false) Integer status,
             @RequestParam(required = false) String name
     ) {
-        try {
-            return Result.success(productCategoryService.list(parentId, status, name));
-        } catch (RuntimeException e) {
-            return Result.error(e.getMessage());
-        }
+        return Result.success(productCategoryService.list(parentId, status, name));
     }
 
+    /**
+     * GET /api/admin/categories/tree
+     * 查询两级分类树，供后台管理和前台展示使用。
+     */
     @GetMapping("/tree")
     public Result<List<CategoryTreeResponse>> tree() {
-        try {
-            return Result.success(productCategoryService.tree());
-        } catch (RuntimeException e) {
-            return Result.error(e.getMessage());
-        }
+        return Result.success(productCategoryService.tree());
     }
 
+    /**
+     * GET /api/admin/categories/{id}
+     * 查询单个分类资源。
+     */
     @GetMapping("/{id}")
     public Result<CategoryResponse> detail(@PathVariable Long id) {
-        try {
-            return Result.success(productCategoryService.detail(id));
-        } catch (RuntimeException e) {
-            return Result.error(e.getMessage());
-        }
+        return Result.success(productCategoryService.detail(id));
     }
 
+    /**
+     * POST /api/admin/categories
+     * 创建一个分类资源。
+     */
     @PostMapping
     public Result<CategoryResponse> create(@RequestBody CategoryCreateRequest request) {
-        try {
-            return Result.success(productCategoryService.create(request));
-        } catch (RuntimeException e) {
-            return Result.error(e.getMessage());
-        }
+        return Result.success(productCategoryService.create(request));
     }
 
+    /**
+     * PUT /api/admin/categories/{id}
+     * 更新一个分类资源的可编辑字段。
+     */
     @PutMapping("/{id}")
     public Result<CategoryResponse> update(@PathVariable Long id, @RequestBody CategoryUpdateRequest request) {
-        try {
-            return Result.success(productCategoryService.update(id, request));
-        } catch (RuntimeException e) {
-            return Result.error(e.getMessage());
-        }
+        return Result.success(productCategoryService.update(id, request));
     }
 
+    /**
+     * PATCH /api/admin/categories/{id}/status
+     * 只更新分类状态，不影响其他字段。
+     */
     @PatchMapping("/{id}/status")
     public Result<CategoryResponse> updateStatus(@PathVariable Long id, @RequestBody CategoryStatusRequest request) {
-        try {
-            return Result.success(productCategoryService.updateStatus(id, request));
-        } catch (RuntimeException e) {
-            return Result.error(e.getMessage());
-        }
+        return Result.success(productCategoryService.updateStatus(id, request));
     }
 
+    /**
+     * DELETE /api/admin/categories/{id}
+     * 按业务规则删除一个分类资源。
+     */
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {
-        try {
-            productCategoryService.delete(id);
-            return Result.success();
-        } catch (RuntimeException e) {
-            return Result.error(e.getMessage());
-        }
+        productCategoryService.delete(id);
+        return Result.success();
     }
 }
