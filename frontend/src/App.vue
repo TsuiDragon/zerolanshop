@@ -2,17 +2,23 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import {
   BarChart3,
+  Banknote,
   Bell,
   Box,
+  ChartNoAxesCombined,
   ChevronDown,
   ChevronRight,
   CreditCard,
   DollarSign,
   Edit3,
+  FileText,
+  HandCoins,
   Home,
+  KeyRound,
   Megaphone,
   Package,
   Plus,
+  ReceiptText,
   Settings,
   ShoppingCart,
   Trash2,
@@ -619,7 +625,6 @@ async function requestJson<T>(
         <template v-if="mode === 'login'">还没有账户？<a href="#" @click.prevent="switchMode('register')">立即注册</a></template>
         <template v-else>已有账户？<a href="#" @click.prevent="switchMode('login')">返回登录</a></template>
       </p>
-      <p class="login-switch"><a href="#" @click.prevent="navigate('/admin/login')">管理员登录</a></p>
     </section>
   </main>
 
@@ -661,12 +666,30 @@ async function requestJson<T>(
         <section class="quick-section">
           <h2>常用功能</h2>
           <div class="quick-grid">
-            <article class="quick-card"><WalletCards :size="28" /><span>权益采购</span></article>
-            <article class="quick-card"><Box :size="28" /><span>订单记录</span></article>
-            <article class="quick-card"><CreditCard :size="28" /><span>资金流水</span></article>
-            <article class="quick-card"><Package :size="28" /><span>卡密管理</span></article>
-            <article class="quick-card"><BarChart3 :size="28" /><span>数据报表</span></article>
-            <article class="quick-card"><TrendingUp :size="28" /><span>合同管理</span></article>
+            <button class="quick-card" type="button" aria-label="权益采购">
+              <span class="quick-icon"><HandCoins :size="40" :stroke-width="2.1" /></span>
+              <span>权益采购</span>
+            </button>
+            <button class="quick-card" type="button" aria-label="订单记录">
+              <span class="quick-icon"><ReceiptText :size="40" :stroke-width="2.1" /></span>
+              <span>订单记录</span>
+            </button>
+            <button class="quick-card" type="button" aria-label="资金流水">
+              <span class="quick-icon"><Banknote :size="40" :stroke-width="2.1" /></span>
+              <span>资金流水</span>
+            </button>
+            <button class="quick-card" type="button" aria-label="卡密管理">
+              <span class="quick-icon"><KeyRound :size="40" :stroke-width="2.1" /></span>
+              <span>卡密管理</span>
+            </button>
+            <button class="quick-card" type="button" aria-label="数据报表">
+              <span class="quick-icon"><ChartNoAxesCombined :size="40" :stroke-width="2.1" /></span>
+              <span>数据报表</span>
+            </button>
+            <button class="quick-card" type="button" aria-label="合同管理">
+              <span class="quick-icon"><FileText :size="40" :stroke-width="2.1" /></span>
+              <span>合同管理</span>
+            </button>
           </div>
         </section>
 
