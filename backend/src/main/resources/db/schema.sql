@@ -17,7 +17,6 @@ CREATE TABLE IF NOT EXISTS `user` (
     `register_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '注册时间',
     `last_login_time` DATETIME DEFAULT NULL COMMENT '最后登录时间',
     `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-    `deleted` TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除：0-未删除，1-已删除',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_user_username` (`username`),
     UNIQUE KEY `uk_user_email` (`email`),
@@ -39,7 +38,6 @@ CREATE TABLE IF NOT EXISTS `admin` (
     `last_login_time` DATETIME DEFAULT NULL COMMENT '最后登录时间',
     `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-    `deleted` TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除：0-未删除，1-已删除',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_admin_username` (`username`),
     UNIQUE KEY `uk_admin_email` (`email`),
@@ -56,9 +54,49 @@ CREATE TABLE IF NOT EXISTS `product_category` (
     `status` TINYINT NOT NULL DEFAULT 1 COMMENT '状态：0-禁用，1-启用',
     `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
-    `deleted` TINYINT NOT NULL DEFAULT 0 COMMENT '逻辑删除：0-未删除，1-已删除',
     PRIMARY KEY (`id`),
     KEY `idx_category_parent_name` (`parent_id`, `name`),
     KEY `idx_category_parent_sort` (`parent_id`, `sort`, `id`),
     KEY `idx_category_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='商品分类表';
+
+-- 定价模板表：用于商品根据渠道成本价计算销售价
+CREATE TABLE IF NOT EXISTS `pricing_template` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '定价模板ID',
+    `name` VARCHAR(50) NOT NULL COMMENT '模板名称',
+    `pricing_type` VARCHAR(20) NOT NULL COMMENT '定价方式：PERCENTAGE-百分比加价，FIXED_AMOUNT-固定金额加价',
+    `pricing_value` DECIMAL(10,4) NOT NULL DEFAULT '0.0000' COMMENT '定价值：百分比或固定加价金额',
+    `description` VARCHAR(255) DEFAULT NULL COMMENT '备注',
+    `sort` INT NOT NULL DEFAULT 0 COMMENT '排序号，值越小越靠前',
+    `status` TINYINT NOT NULL DEFAULT 1 COMMENT '状态：0-禁用，1-启用',
+    `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_pricing_template_name` (`name`),
+    KEY `idx_pricing_template_type` (`pricing_type`),
+    KEY `idx_pricing_template_status` (`status`),
+    KEY `idx_pricing_template_sort` (`sort`, `id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='定价模板表';
+
+-- 图片素材表：记录本地上传图片，便于复用和清理
+CREATE TABLE IF NOT EXISTS `media_asset` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '素材ID',
+    `scene` VARCHAR(20) NOT NULL COMMENT '使用场景：category-分类图标，product-商品图片',
+    `url` VARCHAR(500) NOT NULL COMMENT '公开访问路径',
+    `filename` VARCHAR(120) NOT NULL COMMENT '存储文件名',
+    `original_name` VARCHAR(255) DEFAULT NULL COMMENT '原始文件名',
+    `content_type` VARCHAR(100) NOT NULL COMMENT '文件MIME类型',
+    `extension` VARCHAR(20) NOT NULL COMMENT '文件扩展名',
+    `size` BIGINT NOT NULL DEFAULT 0 COMMENT '文件大小，单位字节',
+    `width` INT DEFAULT NULL COMMENT '图片宽度',
+    `height` INT DEFAULT NULL COMMENT '图片高度',
+    `storage_path` VARCHAR(500) NOT NULL COMMENT '磁盘存储路径',
+    `status` TINYINT NOT NULL DEFAULT 1 COMMENT '状态：0-禁用，1-正常',
+    `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_media_asset_url` (`url`),
+    KEY `idx_media_asset_scene` (`scene`),
+    KEY `idx_media_asset_status` (`status`),
+    KEY `idx_media_asset_create_time` (`create_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='图片素材表';

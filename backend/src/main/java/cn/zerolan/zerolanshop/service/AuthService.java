@@ -86,8 +86,6 @@ public class AuthService {
         user.setRegisterTime(now);
         user.setLastLoginTime(now);
         user.setUpdateTime(now);
-        user.setDeleted(0);
-
         userMapper.insert(user);
         return buildLoginResponse(user);
     }

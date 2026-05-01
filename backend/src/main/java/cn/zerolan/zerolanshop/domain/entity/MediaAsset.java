@@ -10,35 +10,44 @@ import lombok.Data;
 import java.time.LocalDateTime;
 
 @Data
-@TableName("admin")
-public class Admin {
+@TableName("media_asset")
+public class MediaAsset {
 
     @TableId(type = IdType.AUTO)
     private Long id;
 
-    @TableField("username")
-    private String username;
+    @TableField("scene")
+    private String scene;
 
-    @TableField("password")
-    private String password;
+    @TableField("url")
+    private String url;
 
-    @TableField("nickname")
-    private String nickname;
+    @TableField("filename")
+    private String filename;
 
-    @TableField("email")
-    private String email;
+    @TableField("original_name")
+    private String originalName;
 
-    @TableField("phone")
-    private String phone;
+    @TableField("content_type")
+    private String contentType;
 
-    @TableField("role")
-    private String role;
+    @TableField("extension")
+    private String extension;
+
+    @TableField("size")
+    private Long size;
+
+    @TableField("width")
+    private Integer width;
+
+    @TableField("height")
+    private Integer height;
+
+    @TableField("storage_path")
+    private String storagePath;
 
     @TableField("status")
     private Integer status;
-
-    @TableField("last_login_time")
-    private LocalDateTime lastLoginTime;
 
     @TableField(value = "create_time", fill = FieldFill.INSERT)
     private LocalDateTime createTime;

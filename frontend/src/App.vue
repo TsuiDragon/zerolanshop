@@ -31,8 +31,9 @@ import {
 } from 'lucide-vue-next'
 
 type Page = 'admin' | 'adminAuth' | 'home' | 'userAuth'
-type AdminView = 'home' | 'category'
+type AdminView = 'home' | 'category' | 'pricingTemplate' | 'mediaAsset'
 type AuthMode = 'login' | 'register'
+type PricingType = 'PERCENTAGE' | 'FIXED_AMOUNT'
 
 type ApiResult<T> = {
   code: number
@@ -52,6 +53,37 @@ type LoginResponse = {
   token: string
   userId: number
   username: string
+}
+
+type ImageUploadResponse = {
+  id: number
+  url: string
+  filename: string
+  size: number
+  contentType: string
+}
+
+type MediaAssetResponse = {
+  id: number
+  scene: 'category' | 'product'
+  url: string
+  filename: string
+  originalName?: string | null
+  contentType: string
+  extension: string
+  size: number
+  width?: number | null
+  height?: number | null
+  status: number
+  used: boolean
+  createTime?: string
+  updateTime?: string
+}
+
+type MediaAssetFilters = {
+  scene: '' | 'category' | 'product'
+  filename: string
+  used: '' | 'true' | 'false'
 }
 
 type CategoryResponse = {
@@ -83,13 +115,47 @@ type CategoryForm = {
   status: number
 }
 
+type PricingTemplateResponse = {
+  id: number
+  name: string
+  pricingType: PricingType
+  pricingValue: number
+  description?: string | null
+  sort: number
+  status: number
+  createTime?: string
+  updateTime?: string
+}
+
+type PricingTemplateForm = {
+  id?: number
+  name: string
+  pricingType: PricingType
+  pricingValue: number
+  description: string
+  sort: number
+  status: number
+}
+
+type PricingTemplateFilters = {
+  name: string
+  pricingType: '' | PricingType
+  status: '' | 0 | 1
+}
+
 const currentPath = ref(window.location.pathname)
 const adminView = ref<AdminView>(getAdminViewFromPath(currentPath.value))
 
 const page = computed<Page>(() => {
   if (currentPath.value === '/login') return 'userAuth'
   if (currentPath.value === '/admin/login') return 'adminAuth'
-  if (currentPath.value === '/admin' || currentPath.value === '/admin/index' || currentPath.value === '/admin/goods/category') return 'admin'
+  if (
+    currentPath.value === '/admin' ||
+    currentPath.value === '/admin/index' ||
+    currentPath.value === '/admin/goods/category' ||
+    currentPath.value === '/admin/goods/pricing-template' ||
+    currentPath.value === '/admin/goods/media-assets'
+  ) return 'admin'
   if (currentPath.value === '/index') return 'home'
   return 'userAuth'
 })
@@ -117,6 +183,7 @@ const selectedIds = ref<number[]>([])
 const categoryLoading = ref(false)
 const categoryMessage = ref('')
 const savingCategory = ref(false)
+const categoryIconUploading = ref(false)
 const modalOpen = ref(false)
 const modalMode = ref<'create' | 'edit'>('create')
 const categoryForm = reactive<CategoryForm>({
@@ -124,6 +191,36 @@ const categoryForm = reactive<CategoryForm>({
   name: '',
   icon: '',
   status: 1,
+})
+
+const pricingTemplates = ref<PricingTemplateResponse[]>([])
+const pricingTemplateLoading = ref(false)
+const pricingTemplateMessage = ref('')
+const savingPricingTemplate = ref(false)
+const pricingTemplateModalOpen = ref(false)
+const pricingTemplateModalMode = ref<'create' | 'edit'>('create')
+const pricingTemplateFilters = reactive<PricingTemplateFilters>({
+  name: '',
+  pricingType: '',
+  status: '',
+})
+const pricingTemplateForm = reactive<PricingTemplateForm>({
+  name: '',
+  pricingType: 'PERCENTAGE',
+  pricingValue: 0,
+  description: '',
+  sort: 0,
+  status: 1,
+})
+const mediaAssets = ref<MediaAssetResponse[]>([])
+const mediaAssetLoading = ref(false)
+const mediaAssetMessage = ref('')
+const mediaAssetUploading = ref(false)
+const mediaAssetPickerOpen = ref(false)
+const mediaAssetFilters = reactive<MediaAssetFilters>({
+  scene: '',
+  filename: '',
+  used: '',
 })
 
 const adminMenus = [
@@ -135,7 +232,8 @@ const adminMenus = [
     children: [
       { name: '商品管理' },
       { name: '商品分类', view: 'category' as AdminView },
-      { name: '定价模板' },
+      { name: '定价模板', view: 'pricingTemplate' as AdminView },
+      { name: '素材管理', view: 'mediaAsset' as AdminView },
       { name: '货源渠道' },
     ],
   },
@@ -294,11 +392,17 @@ function switchAdminView(view: AdminView) {
 }
 
 function getAdminPath(view: AdminView) {
-  return view === 'category' ? '/admin/goods/category' : '/admin/index'
+  if (view === 'category') return '/admin/goods/category'
+  if (view === 'pricingTemplate') return '/admin/goods/pricing-template'
+  if (view === 'mediaAsset') return '/admin/goods/media-assets'
+  return '/admin/index'
 }
 
 function getAdminViewFromPath(path: string): AdminView {
-  return path === '/admin/goods/category' ? 'category' : 'home'
+  if (path === '/admin/goods/category') return 'category'
+  if (path === '/admin/goods/pricing-template') return 'pricingTemplate'
+  if (path === '/admin/goods/media-assets') return 'mediaAsset'
+  return 'home'
 }
 
 function syncAdminViewFromPath() {
@@ -307,6 +411,16 @@ function syncAdminViewFromPath() {
   if (adminView.value === 'category' && categoryTree.value.length === 0) {
     loadCategories()
   }
+  if (adminView.value === 'pricingTemplate' && pricingTemplates.value.length === 0) {
+    loadPricingTemplates()
+  }
+  if (adminView.value === 'mediaAsset' && mediaAssets.value.length === 0) {
+    loadMediaAssets()
+  }
+}
+
+function isGoodsAdminView() {
+  return ['category', 'pricingTemplate', 'mediaAsset'].includes(adminView.value)
 }
 
 async function handleAdminSubmit() {
@@ -513,8 +627,265 @@ async function batchDelete() {
   }
 }
 
+async function uploadCategoryIcon(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file || categoryIconUploading.value) return
+
+  categoryIconUploading.value = true
+  categoryMessage.value = ''
+
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('scene', 'category')
+    const result = await requestForm<ImageUploadResponse>('/api/admin/files/images', formData)
+    categoryForm.icon = result.data.url
+    await loadMediaAssets()
+  } catch (error) {
+    categoryMessage.value = error instanceof Error ? error.message : '分类图标上传失败'
+  } finally {
+    categoryIconUploading.value = false
+    input.value = ''
+  }
+}
+
+async function uploadMediaAsset(event: Event, scene: 'category' | 'product' = 'category') {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file || mediaAssetUploading.value) return
+
+  mediaAssetUploading.value = true
+  mediaAssetMessage.value = ''
+
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('scene', scene)
+    await requestForm<ImageUploadResponse>('/api/admin/files/images', formData)
+    await loadMediaAssets()
+  } catch (error) {
+    mediaAssetMessage.value = error instanceof Error ? error.message : '素材上传失败'
+  } finally {
+    mediaAssetUploading.value = false
+    input.value = ''
+  }
+}
+
+async function loadMediaAssets() {
+  mediaAssetLoading.value = true
+  mediaAssetMessage.value = ''
+
+  try {
+    const params = new URLSearchParams()
+    if (mediaAssetFilters.scene) params.set('scene', mediaAssetFilters.scene)
+    if (mediaAssetFilters.filename.trim()) params.set('filename', mediaAssetFilters.filename.trim())
+    if (mediaAssetFilters.used) params.set('used', mediaAssetFilters.used)
+    const query = params.toString()
+    const result = await requestJson<MediaAssetResponse[]>(`/api/admin/media-assets${query ? `?${query}` : ''}`)
+    mediaAssets.value = result.data
+  } catch (error) {
+    mediaAssetMessage.value = error instanceof Error ? error.message : '素材加载失败'
+  } finally {
+    mediaAssetLoading.value = false
+  }
+}
+
+function resetMediaAssetFilters() {
+  Object.assign(mediaAssetFilters, {
+    scene: '',
+    filename: '',
+    used: '',
+  })
+  loadMediaAssets()
+}
+
+function openMediaAssetPicker() {
+  mediaAssetPickerOpen.value = true
+  mediaAssetFilters.scene = 'category'
+  loadMediaAssets()
+}
+
+function selectMediaAsset(asset: MediaAssetResponse) {
+  categoryForm.icon = asset.url
+  mediaAssetPickerOpen.value = false
+}
+
+async function deleteMediaAsset(asset: MediaAssetResponse) {
+  if (!window.confirm(`确定删除素材“${asset.originalName || asset.filename}”吗？未使用素材会同时删除磁盘文件。`)) return
+
+  mediaAssetMessage.value = ''
+  try {
+    await requestJson<void>(`/api/admin/media-assets/${asset.id}`, { method: 'DELETE' })
+    await loadMediaAssets()
+  } catch (error) {
+    mediaAssetMessage.value = error instanceof Error ? error.message : '素材删除失败'
+  }
+}
+
+async function copyMediaAssetUrl(asset: MediaAssetResponse) {
+  try {
+    await navigator.clipboard.writeText(asset.url)
+    mediaAssetMessage.value = '素材地址已复制'
+  } catch {
+    mediaAssetMessage.value = asset.url
+  }
+}
+
+function sceneLabel(scene: string) {
+  return scene === 'category' ? '分类图标' : '商品图片'
+}
+
+function formatFileSize(size: number) {
+  if (size >= 1024 * 1024) return `${(size / 1024 / 1024).toFixed(2)} MB`
+  return `${(size / 1024).toFixed(1)} KB`
+}
+
+async function loadPricingTemplates() {
+  pricingTemplateLoading.value = true
+  pricingTemplateMessage.value = ''
+
+  try {
+    const params = new URLSearchParams()
+    if (pricingTemplateFilters.name.trim()) params.set('name', pricingTemplateFilters.name.trim())
+    if (pricingTemplateFilters.pricingType) params.set('pricingType', pricingTemplateFilters.pricingType)
+    if (pricingTemplateFilters.status !== '') params.set('status', String(pricingTemplateFilters.status))
+    const query = params.toString()
+    const result = await requestJson<PricingTemplateResponse[]>(
+      `/api/admin/pricing-templates${query ? `?${query}` : ''}`,
+    )
+    pricingTemplates.value = [...result.data].sort(sortPricingTemplate)
+  } catch (error) {
+    pricingTemplateMessage.value = error instanceof Error ? error.message : '定价模板加载失败'
+  } finally {
+    pricingTemplateLoading.value = false
+  }
+}
+
+function sortPricingTemplate(a: PricingTemplateResponse, b: PricingTemplateResponse) {
+  return (a.sort || 0) - (b.sort || 0) || a.id - b.id
+}
+
+function resetPricingTemplateFilters() {
+  Object.assign(pricingTemplateFilters, {
+    name: '',
+    pricingType: '',
+    status: '',
+  })
+  loadPricingTemplates()
+}
+
+function openCreatePricingTemplateModal() {
+  pricingTemplateModalMode.value = 'create'
+  Object.assign(pricingTemplateForm, {
+    id: undefined,
+    name: '',
+    pricingType: 'PERCENTAGE',
+    pricingValue: 0,
+    description: '',
+    sort: 0,
+    status: 1,
+  })
+  pricingTemplateModalOpen.value = true
+}
+
+function openEditPricingTemplateModal(template: PricingTemplateResponse) {
+  pricingTemplateModalMode.value = 'edit'
+  Object.assign(pricingTemplateForm, {
+    id: template.id,
+    name: template.name,
+    pricingType: template.pricingType,
+    pricingValue: Number(template.pricingValue),
+    description: template.description || '',
+    sort: template.sort,
+    status: template.status,
+  })
+  pricingTemplateModalOpen.value = true
+}
+
+async function savePricingTemplate() {
+  if (!pricingTemplateForm.name.trim() || savingPricingTemplate.value) return
+
+  savingPricingTemplate.value = true
+  pricingTemplateMessage.value = ''
+
+  const body = {
+    name: pricingTemplateForm.name.trim(),
+    pricingType: pricingTemplateForm.pricingType,
+    pricingValue: Number(pricingTemplateForm.pricingValue),
+    description: pricingTemplateForm.description.trim() || null,
+    sort: Number(pricingTemplateForm.sort) || 0,
+    status: pricingTemplateForm.status,
+  }
+
+  try {
+    if (pricingTemplateModalMode.value === 'create') {
+      await requestJson<PricingTemplateResponse>('/api/admin/pricing-templates', {
+        method: 'POST',
+        body,
+      })
+    } else {
+      await requestJson<PricingTemplateResponse>(`/api/admin/pricing-templates/${pricingTemplateForm.id}`, {
+        method: 'PUT',
+        body,
+      })
+    }
+    pricingTemplateModalOpen.value = false
+    await loadPricingTemplates()
+  } catch (error) {
+    pricingTemplateMessage.value = error instanceof Error ? error.message : '定价模板保存失败'
+  } finally {
+    savingPricingTemplate.value = false
+  }
+}
+
+async function changePricingTemplateStatus(template: PricingTemplateResponse) {
+  const nextStatus = template.status === 1 ? 0 : 1
+  template.status = nextStatus
+  try {
+    await requestJson<PricingTemplateResponse>(`/api/admin/pricing-templates/${template.id}/status`, {
+      method: 'PATCH',
+      body: { status: nextStatus },
+    })
+  } catch (error) {
+    template.status = nextStatus === 1 ? 0 : 1
+    pricingTemplateMessage.value = error instanceof Error ? error.message : '定价模板状态更新失败'
+  }
+}
+
+async function deletePricingTemplate(template: PricingTemplateResponse) {
+  if (!window.confirm(`确定删除定价模板“${template.name}”吗？`)) return
+
+  pricingTemplateMessage.value = ''
+  try {
+    await requestJson<void>(`/api/admin/pricing-templates/${template.id}`, { method: 'DELETE' })
+    await loadPricingTemplates()
+  } catch (error) {
+    pricingTemplateMessage.value = error instanceof Error ? error.message : '定价模板删除失败'
+  }
+}
+
+function pricingTypeLabel(pricingType: PricingType) {
+  return pricingType === 'PERCENTAGE' ? '百分比加价' : '固定金额加价'
+}
+
+function formatPricingValue(template: PricingTemplateResponse) {
+  const value = Number(template.pricingValue)
+  if (template.pricingType === 'PERCENTAGE') return `${formatPlainNumber(value)}%`
+  return `+¥${value.toFixed(2)}`
+}
+
+function formatPlainNumber(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(4).replace(/0+$/, '').replace(/\.$/, '')
+}
+
+function formatDateTime(value?: string) {
+  if (!value) return '-'
+  return value.replace('T', ' ').slice(0, 19)
+}
+
 function isImageIcon(icon?: string | null) {
-  return Boolean(icon && /^https?:\/\//.test(icon))
+  return Boolean(icon && (/^https?:\/\//.test(icon) || icon.startsWith('/uploads/images/')))
 }
 
 function readStoredAdminName() {
@@ -558,6 +929,29 @@ async function requestJson<T>(
     method: options.method || 'GET',
     headers,
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
+  })
+
+  if (!response.ok) throw new Error(`请求失败：${response.status}`)
+  const result = (await response.json()) as ApiResult<T>
+  if (result.code !== 200) throw new Error(result.message || '请求失败')
+  return result
+}
+
+async function requestForm<T>(
+  endpoint: string,
+  body: FormData,
+  options: { method?: string; auth?: boolean } = {},
+) {
+  const headers: Record<string, string> = {}
+  if (options.auth !== false) {
+    const token = readAdminToken()
+    if (token) headers.Authorization = `Bearer ${token}`
+  }
+
+  const response = await fetch(endpoint, {
+    method: options.method || 'POST',
+    headers,
+    body,
   })
 
   if (!response.ok) throw new Error(`请求失败：${response.status}`)
@@ -760,7 +1154,7 @@ async function requestJson<T>(
         <div v-for="menu in adminMenus" :key="menu.name" class="admin-nav-group">
           <button
             type="button"
-            :class="{ active: menu.view === adminView || (menu.name === '商品' && adminView === 'category') }"
+            :class="{ active: menu.view === adminView || (menu.children && isGoodsAdminView()) }"
             @click="menu.view && switchAdminView(menu.view)"
           >
             <component :is="menu.icon" :size="18" />
@@ -770,7 +1164,7 @@ async function requestJson<T>(
           </button>
           <div v-if="menu.children && menu.expanded" class="sub-nav">
             <button
-              v-for="child in menu.children"
+              v-for="(child, childIndex) in menu.children"
               :key="child.name"
               type="button"
               :class="{ active: child.view === adminView }"
@@ -840,7 +1234,7 @@ async function requestJson<T>(
         </section>
       </div>
 
-      <div v-else class="admin-content">
+      <div v-else-if="adminView === 'category'" class="admin-content">
         <section class="page-heading">
           <h2>商品分类</h2>
           <p>管理商品分类信息</p>
@@ -932,6 +1326,159 @@ async function requestJson<T>(
           </footer>
         </section>
       </div>
+
+      <div v-else-if="adminView === 'pricingTemplate'" class="admin-content">
+        <section class="page-heading">
+          <h2>定价模板</h2>
+          <p>维护商品基于渠道成本价的加价规则</p>
+        </section>
+
+        <section class="category-panel">
+          <div class="category-toolbar pricing-toolbar">
+            <button class="primary-action" type="button" @click="openCreatePricingTemplateModal()">
+              <Plus :size="18" />
+              <span>添加模板</span>
+            </button>
+            <label>
+              <span>模板名称</span>
+              <input v-model="pricingTemplateFilters.name" placeholder="输入名称筛选" type="text" @keyup.enter="loadPricingTemplates" />
+            </label>
+            <label>
+              <span>定价方式</span>
+              <select v-model="pricingTemplateFilters.pricingType">
+                <option value="">全部</option>
+                <option value="PERCENTAGE">百分比加价</option>
+                <option value="FIXED_AMOUNT">固定金额加价</option>
+              </select>
+            </label>
+            <label>
+              <span>状态</span>
+              <select v-model="pricingTemplateFilters.status">
+                <option value="">全部</option>
+                <option :value="1">启用</option>
+                <option :value="0">禁用</option>
+              </select>
+            </label>
+            <button class="soft-action" type="button" @click="loadPricingTemplates">筛选</button>
+            <button class="soft-action" type="button" @click="resetPricingTemplateFilters">重置</button>
+            <p v-if="pricingTemplateLoading" class="toolbar-note">正在加载模板...</p>
+          </div>
+
+          <p v-if="pricingTemplateMessage" class="category-message">{{ pricingTemplateMessage }}</p>
+
+          <div class="category-table" role="table" aria-label="定价模板列表">
+            <div class="pricing-template-row table-head" role="row">
+              <span>模板编号</span>
+              <span>模板名称</span>
+              <span>定价方式</span>
+              <span>定价值</span>
+              <span>排序号</span>
+              <span>状态</span>
+              <span>更新时间</span>
+              <span>操作</span>
+            </div>
+
+            <div v-for="template in pricingTemplates" :key="template.id" class="pricing-template-row" role="row">
+              <strong>{{ template.id }}</strong>
+              <span class="template-name">
+                <strong>{{ template.name }}</strong>
+                <small v-if="template.description">{{ template.description }}</small>
+              </span>
+              <span>{{ pricingTypeLabel(template.pricingType) }}</span>
+              <strong class="pricing-value">{{ formatPricingValue(template) }}</strong>
+              <span>{{ template.sort }}</span>
+              <button class="switch" :class="{ on: template.status === 1 }" type="button" @click="changePricingTemplateStatus(template)">
+                <span></span>
+              </button>
+              <span>{{ formatDateTime(template.updateTime || template.createTime) }}</span>
+              <span class="row-actions">
+                <button class="text-action edit" type="button" @click="openEditPricingTemplateModal(template)">
+                  <Edit3 :size="14" />
+                  编辑
+                </button>
+                <button class="text-action danger" type="button" @click="deletePricingTemplate(template)">
+                  <Trash2 :size="14" />
+                  删除
+                </button>
+              </span>
+            </div>
+
+            <div v-if="!pricingTemplates.length && !pricingTemplateLoading" class="empty-row">暂无定价模板数据</div>
+          </div>
+
+          <footer class="category-footer">
+            <span>共 {{ pricingTemplates.length }} 条记录</span>
+          </footer>
+        </section>
+      </div>
+
+      <div v-else-if="adminView === 'mediaAsset'" class="admin-content">
+        <section class="page-heading">
+          <h2>素材管理</h2>
+          <p>管理分类图标和商品图片素材，清理未使用文件</p>
+        </section>
+
+        <section class="category-panel">
+          <div class="category-toolbar pricing-toolbar">
+            <label class="upload-button">
+              <input accept=".jpg,.jpeg,.png,.webp,.svg,image/jpeg,image/png,image/webp,image/svg+xml" type="file" :disabled="mediaAssetUploading" @change="uploadMediaAsset($event, 'category')" />
+              <span>{{ mediaAssetUploading ? '上传中...' : '上传分类图标' }}</span>
+            </label>
+            <label class="upload-button">
+              <input accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" type="file" :disabled="mediaAssetUploading" @change="uploadMediaAsset($event, 'product')" />
+              <span>{{ mediaAssetUploading ? '上传中...' : '上传商品图片' }}</span>
+            </label>
+            <label>
+              <span>素材类型</span>
+              <select v-model="mediaAssetFilters.scene">
+                <option value="">全部</option>
+                <option value="category">分类图标</option>
+                <option value="product">商品图片</option>
+              </select>
+            </label>
+            <label>
+              <span>文件名</span>
+              <input v-model="mediaAssetFilters.filename" placeholder="输入文件名" type="text" @keyup.enter="loadMediaAssets" />
+            </label>
+            <label>
+              <span>使用状态</span>
+              <select v-model="mediaAssetFilters.used">
+                <option value="">全部</option>
+                <option value="true">使用中</option>
+                <option value="false">未使用</option>
+              </select>
+            </label>
+            <button class="soft-action" type="button" @click="loadMediaAssets">筛选</button>
+            <button class="soft-action" type="button" @click="resetMediaAssetFilters">重置</button>
+            <p v-if="mediaAssetLoading" class="toolbar-note">正在加载素材...</p>
+          </div>
+
+          <p v-if="mediaAssetMessage" class="category-message">{{ mediaAssetMessage }}</p>
+
+          <div class="media-grid">
+            <article v-for="asset in mediaAssets" :key="asset.id" class="media-card">
+              <div class="media-thumb">
+                <img :src="asset.url" :alt="asset.originalName || asset.filename" />
+              </div>
+              <div class="media-meta">
+                <strong>{{ asset.originalName || asset.filename }}</strong>
+                <span>{{ sceneLabel(asset.scene) }} · {{ formatFileSize(asset.size) }}</span>
+                <span>{{ asset.width && asset.height ? `${asset.width} x ${asset.height}` : asset.extension.toUpperCase() }}</span>
+                <span :class="asset.used ? 'used-tag' : 'unused-tag'">{{ asset.used ? '使用中' : '未使用' }}</span>
+              </div>
+              <footer>
+                <button class="text-action edit" type="button" @click="copyMediaAssetUrl(asset)">复制地址</button>
+                <button class="text-action danger" type="button" :disabled="asset.used" @click="deleteMediaAsset(asset)">
+                  <Trash2 :size="14" />
+                  删除
+                </button>
+              </footer>
+            </article>
+
+            <div v-if="!mediaAssets.length && !mediaAssetLoading" class="empty-row">暂无素材数据</div>
+          </div>
+        </section>
+      </div>
     </section>
 
     <div v-if="modalOpen" class="modal-mask" role="dialog" aria-modal="true">
@@ -958,8 +1505,30 @@ async function requestJson<T>(
 
         <label>
           <span>分类图标</span>
-          <input v-model="categoryForm.icon" placeholder="可填文字缩写或图片 URL，例如 TV" />
+          <input v-model="categoryForm.icon" placeholder="可填文字缩写、图片 URL 或上传图片" />
         </label>
+
+        <div class="icon-upload-field">
+          <span class="category-icon preview">
+            <img v-if="isImageIcon(categoryForm.icon)" :src="categoryForm.icon" alt="" />
+            <span v-else>{{ categoryForm.icon || 'CAT' }}</span>
+          </span>
+          <label class="upload-button">
+            <input
+              accept=".jpg,.jpeg,.png,.webp,.svg,image/jpeg,image/png,image/webp,image/svg+xml"
+              type="file"
+              :disabled="categoryIconUploading"
+              @change="uploadCategoryIcon"
+            />
+            <span>{{ categoryIconUploading ? '上传中...' : '上传图片' }}</span>
+          </label>
+          <button class="soft-action" type="button" :disabled="categoryIconUploading" @click="openMediaAssetPicker">
+            选择素材
+          </button>
+          <button class="soft-action" type="button" :disabled="categoryIconUploading || !categoryForm.icon" @click="categoryForm.icon = ''">
+            清空
+          </button>
+        </div>
 
         <label v-if="modalMode === 'edit'">
           <span>排序号</span>
@@ -978,6 +1547,88 @@ async function requestJson<T>(
           <button class="soft-action" type="button" @click="modalOpen = false">取消</button>
           <button class="primary-action" type="submit" :disabled="savingCategory || !categoryForm.name.trim()">
             {{ savingCategory ? '保存中...' : '保存' }}
+          </button>
+        </footer>
+      </form>
+    </div>
+
+    <div v-if="mediaAssetPickerOpen" class="modal-mask" role="dialog" aria-modal="true">
+      <section class="media-picker">
+        <header>
+          <h2>选择素材</h2>
+          <button type="button" aria-label="关闭" @click="mediaAssetPickerOpen = false"><X :size="18" /></button>
+        </header>
+
+        <div class="media-picker-toolbar">
+          <label>
+            <span>文件名</span>
+            <input v-model="mediaAssetFilters.filename" placeholder="搜索素材" type="text" @keyup.enter="loadMediaAssets" />
+          </label>
+          <button class="soft-action" type="button" @click="loadMediaAssets">搜索</button>
+        </div>
+
+        <div class="media-grid picker">
+          <button v-for="asset in mediaAssets" :key="asset.id" class="media-card pickable" type="button" @click="selectMediaAsset(asset)">
+            <span class="media-thumb">
+              <img :src="asset.url" :alt="asset.originalName || asset.filename" />
+            </span>
+            <span class="media-meta">
+              <strong>{{ asset.originalName || asset.filename }}</strong>
+              <small>{{ formatFileSize(asset.size) }}</small>
+            </span>
+          </button>
+          <div v-if="!mediaAssets.length && !mediaAssetLoading" class="empty-row">暂无可选素材</div>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="pricingTemplateModalOpen" class="modal-mask" role="dialog" aria-modal="true">
+      <form class="category-modal pricing-template-modal" @submit.prevent="savePricingTemplate">
+        <header>
+          <h2>{{ pricingTemplateModalMode === 'create' ? '添加定价模板' : '编辑定价模板' }}</h2>
+          <button type="button" aria-label="关闭" @click="pricingTemplateModalOpen = false"><X :size="18" /></button>
+        </header>
+
+        <label>
+          <span>模板名称</span>
+          <input v-model="pricingTemplateForm.name" maxlength="50" placeholder="请输入模板名称" type="text" />
+        </label>
+
+        <label>
+          <span>定价方式</span>
+          <select v-model="pricingTemplateForm.pricingType">
+            <option value="PERCENTAGE">百分比加价</option>
+            <option value="FIXED_AMOUNT">固定金额加价</option>
+          </select>
+        </label>
+
+        <label>
+          <span>{{ pricingTemplateForm.pricingType === 'PERCENTAGE' ? '加价百分比' : '固定加价金额' }}</span>
+          <input v-model.number="pricingTemplateForm.pricingValue" min="0" step="0.0001" type="number" />
+        </label>
+
+        <label>
+          <span>排序号</span>
+          <input v-model.number="pricingTemplateForm.sort" min="0" type="number" />
+        </label>
+
+        <label>
+          <span>状态</span>
+          <select v-model.number="pricingTemplateForm.status">
+            <option :value="1">启用</option>
+            <option :value="0">禁用</option>
+          </select>
+        </label>
+
+        <label>
+          <span>备注</span>
+          <textarea v-model="pricingTemplateForm.description" maxlength="255" placeholder="可填写模板适用说明"></textarea>
+        </label>
+
+        <footer>
+          <button class="soft-action" type="button" @click="pricingTemplateModalOpen = false">取消</button>
+          <button class="primary-action" type="submit" :disabled="savingPricingTemplate || !pricingTemplateForm.name.trim()">
+            {{ savingPricingTemplate ? '保存中...' : '保存' }}
           </button>
         </footer>
       </form>

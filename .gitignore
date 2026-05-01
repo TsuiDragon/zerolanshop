@@ -23,6 +23,7 @@ id_ed25519*
 
 # Logs and runtime files
 logs/
+uploads/
 *.log
 *.pid
 *.seed

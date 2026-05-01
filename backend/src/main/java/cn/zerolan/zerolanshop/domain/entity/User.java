@@ -61,7 +61,4 @@ public class User {
     @TableField(value = "update_time", fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updateTime;
 
-    @TableLogic
-    @TableField("deleted")
-    private Integer deleted;
 }

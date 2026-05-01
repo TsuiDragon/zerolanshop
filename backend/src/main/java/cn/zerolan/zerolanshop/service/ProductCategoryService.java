@@ -104,7 +104,6 @@ public class ProductCategoryService {
         category.setIcon(normalizeText(request.getIcon()));
         category.setSort(nextSort(parentId));
         category.setStatus(status);
-        category.setDeleted(0);
         productCategoryMapper.insert(category);
         return CategoryResponse.from(category);
     }
