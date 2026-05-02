@@ -31,9 +31,11 @@ import {
 } from 'lucide-vue-next'
 
 type Page = 'admin' | 'adminAuth' | 'home' | 'userAuth'
-type AdminView = 'home' | 'category' | 'pricingTemplate' | 'mediaAsset'
+type AdminView = 'home' | 'product' | 'category' | 'pricingTemplate' | 'orderTemplate' | 'mediaAsset'
 type AuthMode = 'login' | 'register'
 type PricingType = 'PERCENTAGE' | 'FIXED_AMOUNT'
+type ProductType = 'VIRTUAL' | 'CARD' | 'NORMAL'
+type OrderFieldType = 'PHONE' | 'QQ' | 'EMAIL' | 'ADDRESS' | 'TEXT'
 
 type ApiResult<T> = {
   code: number
@@ -143,6 +145,86 @@ type PricingTemplateFilters = {
   status: '' | 0 | 1
 }
 
+type OrderTemplateFieldResponse = {
+  id?: number
+  templateId?: number
+  fieldType: OrderFieldType
+  fieldName: string
+  placeholder?: string | null
+  required: boolean
+  sort: number
+}
+
+type OrderTemplateResponse = {
+  id: number
+  name: string
+  description?: string | null
+  sort: number
+  status: number
+  fields: OrderTemplateFieldResponse[]
+  createTime?: string
+  updateTime?: string
+}
+
+type OrderTemplateForm = {
+  id?: number
+  name: string
+  description: string
+  sort: number
+  status: number
+  fields: OrderTemplateFieldResponse[]
+}
+
+type OrderTemplateFilters = {
+  name: string
+  status: '' | 0 | 1
+}
+
+type ProductResponse = {
+  id: number
+  productType: ProductType
+  categoryId: number
+  categoryName?: string | null
+  name: string
+  costPrice: number
+  salePrice: number
+  pricingTemplateId: number
+  pricingTemplateName?: string | null
+  image?: string | null
+  faceValue?: number | null
+  orderTemplateId: number
+  orderTemplateName?: string | null
+  minPurchaseQuantity: number
+  maxPurchaseQuantity?: number | null
+  sort: number
+  status: number
+  createTime?: string
+  updateTime?: string
+}
+
+type ProductForm = {
+  id?: number
+  productType: ProductType
+  categoryId: number | ''
+  name: string
+  costPrice: number
+  pricingTemplateId: number | ''
+  image: string
+  faceValue: number | null
+  orderTemplateId: number | ''
+  minPurchaseQuantity: number
+  maxPurchaseQuantity: number | null
+  sort: number
+  status: number
+}
+
+type ProductFilters = {
+  name: string
+  productType: '' | ProductType
+  categoryId: number | ''
+  status: '' | 0 | 1
+}
+
 const currentPath = ref(window.location.pathname)
 const adminView = ref<AdminView>(getAdminViewFromPath(currentPath.value))
 
@@ -152,8 +234,10 @@ const page = computed<Page>(() => {
   if (
     currentPath.value === '/admin' ||
     currentPath.value === '/admin/index' ||
+    currentPath.value === '/admin/goods/products' ||
     currentPath.value === '/admin/goods/category' ||
     currentPath.value === '/admin/goods/pricing-template' ||
+    currentPath.value === '/admin/goods/order-templates' ||
     currentPath.value === '/admin/goods/media-assets'
   ) return 'admin'
   if (currentPath.value === '/index') return 'home'
@@ -212,11 +296,56 @@ const pricingTemplateForm = reactive<PricingTemplateForm>({
   sort: 0,
   status: 1,
 })
+const orderTemplates = ref<OrderTemplateResponse[]>([])
+const orderTemplateLoading = ref(false)
+const orderTemplateMessage = ref('')
+const savingOrderTemplate = ref(false)
+const orderTemplateModalOpen = ref(false)
+const orderTemplateModalMode = ref<'create' | 'edit'>('create')
+const orderTemplateFilters = reactive<OrderTemplateFilters>({
+  name: '',
+  status: '',
+})
+const orderTemplateForm = reactive<OrderTemplateForm>({
+  name: '',
+  description: '',
+  sort: 0,
+  status: 1,
+  fields: [],
+})
+const products = ref<ProductResponse[]>([])
+const productLoading = ref(false)
+const productMessage = ref('')
+const savingProduct = ref(false)
+const productImageUploading = ref(false)
+const productModalOpen = ref(false)
+const productModalMode = ref<'create' | 'edit'>('create')
+const productFilters = reactive<ProductFilters>({
+  name: '',
+  productType: '',
+  categoryId: '',
+  status: '',
+})
+const productForm = reactive<ProductForm>({
+  productType: 'VIRTUAL',
+  categoryId: '',
+  name: '',
+  costPrice: 0,
+  pricingTemplateId: '',
+  image: '',
+  faceValue: null,
+  orderTemplateId: '',
+  minPurchaseQuantity: 1,
+  maxPurchaseQuantity: null,
+  sort: 0,
+  status: 1,
+})
 const mediaAssets = ref<MediaAssetResponse[]>([])
 const mediaAssetLoading = ref(false)
 const mediaAssetMessage = ref('')
 const mediaAssetUploading = ref(false)
 const mediaAssetPickerOpen = ref(false)
+const mediaAssetPickerTarget = ref<'category' | 'product'>('category')
 const mediaAssetFilters = reactive<MediaAssetFilters>({
   scene: '',
   filename: '',
@@ -230,9 +359,10 @@ const adminMenus = [
     icon: Package,
     expanded: true,
     children: [
-      { name: '商品管理' },
+      { name: '商品管理', view: 'product' as AdminView },
       { name: '商品分类', view: 'category' as AdminView },
       { name: '定价模板', view: 'pricingTemplate' as AdminView },
+      { name: '下单模板', view: 'orderTemplate' as AdminView },
       { name: '素材管理', view: 'mediaAsset' as AdminView },
       { name: '货源渠道' },
     ],
@@ -299,6 +429,26 @@ const allVisibleSelected = computed(
 )
 
 const parentOptions = computed(() => categoryTree.value.map(({ id, name }) => ({ id, name })))
+const flatCategoryOptions = computed(() => {
+  const options: { id: number; name: string }[] = []
+  for (const category of categoryTree.value) {
+    options.push({ id: category.id, name: category.name })
+    for (const child of category.children || []) {
+      options.push({ id: child.id, name: `${category.name} / ${child.name}` })
+    }
+  }
+  return options
+})
+const productSalePricePreview = computed(() => {
+  const template = pricingTemplates.value.find((item) => item.id === Number(productForm.pricingTemplateId))
+  if (!template) return null
+  const cost = Number(productForm.costPrice)
+  if (Number.isNaN(cost) || cost < 0) return null
+  if (template.pricingType === 'PERCENTAGE') {
+    return cost * (1 + Number(template.pricingValue) / 100)
+  }
+  return cost + Number(template.pricingValue)
+})
 
 onMounted(() => {
   normalizeRoute()
@@ -392,15 +542,19 @@ function switchAdminView(view: AdminView) {
 }
 
 function getAdminPath(view: AdminView) {
+  if (view === 'product') return '/admin/goods/products'
   if (view === 'category') return '/admin/goods/category'
   if (view === 'pricingTemplate') return '/admin/goods/pricing-template'
+  if (view === 'orderTemplate') return '/admin/goods/order-templates'
   if (view === 'mediaAsset') return '/admin/goods/media-assets'
   return '/admin/index'
 }
 
 function getAdminViewFromPath(path: string): AdminView {
+  if (path === '/admin/goods/products') return 'product'
   if (path === '/admin/goods/category') return 'category'
   if (path === '/admin/goods/pricing-template') return 'pricingTemplate'
+  if (path === '/admin/goods/order-templates') return 'orderTemplate'
   if (path === '/admin/goods/media-assets') return 'mediaAsset'
   return 'home'
 }
@@ -411,8 +565,14 @@ function syncAdminViewFromPath() {
   if (adminView.value === 'category' && categoryTree.value.length === 0) {
     loadCategories()
   }
+  if (adminView.value === 'product' && products.value.length === 0) {
+    loadProducts()
+  }
   if (adminView.value === 'pricingTemplate' && pricingTemplates.value.length === 0) {
     loadPricingTemplates()
+  }
+  if (adminView.value === 'orderTemplate' && orderTemplates.value.length === 0) {
+    loadOrderTemplates()
   }
   if (adminView.value === 'mediaAsset' && mediaAssets.value.length === 0) {
     loadMediaAssets()
@@ -420,7 +580,7 @@ function syncAdminViewFromPath() {
 }
 
 function isGoodsAdminView() {
-  return ['category', 'pricingTemplate', 'mediaAsset'].includes(adminView.value)
+  return ['product', 'category', 'pricingTemplate', 'orderTemplate', 'mediaAsset'].includes(adminView.value)
 }
 
 async function handleAdminSubmit() {
@@ -465,6 +625,12 @@ async function loadCategories() {
   } finally {
     categoryLoading.value = false
   }
+}
+
+async function ensureProductOptions() {
+  if (categoryTree.value.length === 0) await loadCategories()
+  if (pricingTemplates.value.length === 0) await loadPricingTemplates()
+  if (orderTemplates.value.length === 0) await loadOrderTemplates()
 }
 
 function normalizeTree(tree: CategoryTreeResponse[]) {
@@ -701,13 +867,18 @@ function resetMediaAssetFilters() {
 }
 
 function openMediaAssetPicker() {
+  mediaAssetPickerTarget.value = 'category'
   mediaAssetPickerOpen.value = true
   mediaAssetFilters.scene = 'category'
   loadMediaAssets()
 }
 
 function selectMediaAsset(asset: MediaAssetResponse) {
-  categoryForm.icon = asset.url
+  if (mediaAssetPickerTarget.value === 'product') {
+    productForm.image = asset.url
+  } else {
+    categoryForm.icon = asset.url
+  }
   mediaAssetPickerOpen.value = false
 }
 
@@ -882,6 +1053,326 @@ function formatPlainNumber(value: number) {
 function formatDateTime(value?: string) {
   if (!value) return '-'
   return value.replace('T', ' ').slice(0, 19)
+}
+
+async function loadOrderTemplates() {
+  orderTemplateLoading.value = true
+  orderTemplateMessage.value = ''
+
+  try {
+    const params = new URLSearchParams()
+    if (orderTemplateFilters.name.trim()) params.set('name', orderTemplateFilters.name.trim())
+    if (orderTemplateFilters.status !== '') params.set('status', String(orderTemplateFilters.status))
+    const query = params.toString()
+    const result = await requestJson<OrderTemplateResponse[]>(`/api/admin/order-templates${query ? `?${query}` : ''}`)
+    orderTemplates.value = [...result.data].sort((a, b) => (a.sort || 0) - (b.sort || 0) || a.id - b.id)
+  } catch (error) {
+    orderTemplateMessage.value = error instanceof Error ? error.message : '下单模板加载失败'
+  } finally {
+    orderTemplateLoading.value = false
+  }
+}
+
+function resetOrderTemplateFilters() {
+  Object.assign(orderTemplateFilters, { name: '', status: '' })
+  loadOrderTemplates()
+}
+
+function openCreateOrderTemplateModal() {
+  orderTemplateModalMode.value = 'create'
+  Object.assign(orderTemplateForm, {
+    id: undefined,
+    name: '',
+    description: '',
+    sort: 0,
+    status: 1,
+    fields: [newOrderTemplateField(1)],
+  })
+  orderTemplateModalOpen.value = true
+}
+
+function openEditOrderTemplateModal(template: OrderTemplateResponse) {
+  orderTemplateModalMode.value = 'edit'
+  Object.assign(orderTemplateForm, {
+    id: template.id,
+    name: template.name,
+    description: template.description || '',
+    sort: template.sort,
+    status: template.status,
+    fields: template.fields.map((field) => ({ ...field })),
+  })
+  orderTemplateModalOpen.value = true
+}
+
+function newOrderTemplateField(sort: number): OrderTemplateFieldResponse {
+  return { fieldType: 'PHONE', fieldName: '手机号', placeholder: '请输入手机号', required: true, sort }
+}
+
+function addOrderTemplateField() {
+  orderTemplateForm.fields.push(newOrderTemplateField(orderTemplateForm.fields.length + 1))
+}
+
+function removeOrderTemplateField(index: number) {
+  if (orderTemplateForm.fields.length <= 1) return
+  orderTemplateForm.fields.splice(index, 1)
+  orderTemplateForm.fields.forEach((field, fieldIndex) => {
+    field.sort = fieldIndex + 1
+  })
+}
+
+function applyFieldTypeDefaults(field: OrderTemplateFieldResponse) {
+  const defaults: Record<OrderFieldType, { name: string; placeholder: string }> = {
+    PHONE: { name: '手机号', placeholder: '请输入手机号' },
+    QQ: { name: 'QQ号', placeholder: '请输入QQ号' },
+    EMAIL: { name: '邮箱号', placeholder: '请输入邮箱号' },
+    ADDRESS: { name: '收货地址', placeholder: '请输入收货地址' },
+    TEXT: { name: '自定义信息', placeholder: '请输入信息' },
+  }
+  field.fieldName = defaults[field.fieldType].name
+  field.placeholder = defaults[field.fieldType].placeholder
+}
+
+async function saveOrderTemplate() {
+  if (!orderTemplateForm.name.trim() || !orderTemplateForm.fields.length || savingOrderTemplate.value) return
+  savingOrderTemplate.value = true
+  orderTemplateMessage.value = ''
+  const body = {
+    name: orderTemplateForm.name.trim(),
+    description: orderTemplateForm.description.trim() || null,
+    sort: Number(orderTemplateForm.sort) || 0,
+    status: orderTemplateForm.status,
+    fields: orderTemplateForm.fields.map((field, index) => ({
+      fieldType: field.fieldType,
+      fieldName: field.fieldName.trim(),
+      placeholder: field.placeholder?.trim() || null,
+      required: field.required,
+      sort: Number(field.sort) || index + 1,
+    })),
+  }
+
+  try {
+    if (orderTemplateModalMode.value === 'create') {
+      await requestJson<OrderTemplateResponse>('/api/admin/order-templates', { method: 'POST', body })
+    } else {
+      await requestJson<OrderTemplateResponse>(`/api/admin/order-templates/${orderTemplateForm.id}`, { method: 'PUT', body })
+    }
+    orderTemplateModalOpen.value = false
+    await loadOrderTemplates()
+  } catch (error) {
+    orderTemplateMessage.value = error instanceof Error ? error.message : '下单模板保存失败'
+  } finally {
+    savingOrderTemplate.value = false
+  }
+}
+
+async function changeOrderTemplateStatus(template: OrderTemplateResponse) {
+  const nextStatus = template.status === 1 ? 0 : 1
+  template.status = nextStatus
+  try {
+    await requestJson<OrderTemplateResponse>(`/api/admin/order-templates/${template.id}/status`, {
+      method: 'PATCH',
+      body: { status: nextStatus },
+    })
+  } catch (error) {
+    template.status = nextStatus === 1 ? 0 : 1
+    orderTemplateMessage.value = error instanceof Error ? error.message : '下单模板状态更新失败'
+  }
+}
+
+async function deleteOrderTemplate(template: OrderTemplateResponse) {
+  if (!window.confirm(`确定删除下单模板“${template.name}”吗？`)) return
+  orderTemplateMessage.value = ''
+  try {
+    await requestJson<void>(`/api/admin/order-templates/${template.id}`, { method: 'DELETE' })
+    await loadOrderTemplates()
+  } catch (error) {
+    orderTemplateMessage.value = error instanceof Error ? error.message : '下单模板删除失败'
+  }
+}
+
+function orderTemplateFieldSummary(template: OrderTemplateResponse) {
+  return template.fields.map((field) => field.fieldName).join(' + ')
+}
+
+function fieldTypeLabel(fieldType: OrderFieldType) {
+  const labels: Record<OrderFieldType, string> = {
+    PHONE: '手机号',
+    QQ: 'QQ号',
+    EMAIL: '邮箱号',
+    ADDRESS: '收货地址',
+    TEXT: '自定义文本',
+  }
+  return labels[fieldType]
+}
+
+async function loadProducts() {
+  productLoading.value = true
+  productMessage.value = ''
+
+  try {
+    await ensureProductOptions()
+    const params = new URLSearchParams()
+    if (productFilters.name.trim()) params.set('name', productFilters.name.trim())
+    if (productFilters.productType) params.set('productType', productFilters.productType)
+    if (productFilters.categoryId !== '') params.set('categoryId', String(productFilters.categoryId))
+    if (productFilters.status !== '') params.set('status', String(productFilters.status))
+    const query = params.toString()
+    const result = await requestJson<ProductResponse[]>(`/api/admin/products${query ? `?${query}` : ''}`)
+    products.value = [...result.data].sort((a, b) => (a.sort || 0) - (b.sort || 0) || a.id - b.id)
+  } catch (error) {
+    productMessage.value = error instanceof Error ? error.message : '商品加载失败'
+  } finally {
+    productLoading.value = false
+  }
+}
+
+function resetProductFilters() {
+  Object.assign(productFilters, { name: '', productType: '', categoryId: '', status: '' })
+  loadProducts()
+}
+
+async function openCreateProductModal() {
+  await ensureProductOptions()
+  productModalMode.value = 'create'
+  Object.assign(productForm, {
+    id: undefined,
+    productType: 'VIRTUAL',
+    categoryId: flatCategoryOptions.value[0]?.id || '',
+    name: '',
+    costPrice: 0,
+    pricingTemplateId: pricingTemplates.value[0]?.id || '',
+    image: '',
+    faceValue: null,
+    orderTemplateId: orderTemplates.value[0]?.id || '',
+    minPurchaseQuantity: 1,
+    maxPurchaseQuantity: null,
+    sort: 0,
+    status: 1,
+  })
+  productModalOpen.value = true
+}
+
+async function openEditProductModal(product: ProductResponse) {
+  await ensureProductOptions()
+  productModalMode.value = 'edit'
+  Object.assign(productForm, {
+    id: product.id,
+    productType: product.productType,
+    categoryId: product.categoryId,
+    name: product.name,
+    costPrice: Number(product.costPrice),
+    pricingTemplateId: product.pricingTemplateId,
+    image: product.image || '',
+    faceValue: product.faceValue == null ? null : Number(product.faceValue),
+    orderTemplateId: product.orderTemplateId,
+    minPurchaseQuantity: product.minPurchaseQuantity || 1,
+    maxPurchaseQuantity: product.maxPurchaseQuantity == null ? null : Number(product.maxPurchaseQuantity),
+    sort: product.sort,
+    status: product.status,
+  })
+  productModalOpen.value = true
+}
+
+async function saveProduct() {
+  if (!productForm.name.trim() || productForm.categoryId === '' || productForm.pricingTemplateId === '' || productForm.orderTemplateId === '' || savingProduct.value) return
+  savingProduct.value = true
+  productMessage.value = ''
+  const body = {
+    productType: productForm.productType,
+    categoryId: Number(productForm.categoryId),
+    name: productForm.name.trim(),
+    costPrice: Number(productForm.costPrice),
+    pricingTemplateId: Number(productForm.pricingTemplateId),
+    image: productForm.image.trim() || null,
+    faceValue: productForm.faceValue == null ? null : Number(productForm.faceValue),
+    orderTemplateId: Number(productForm.orderTemplateId),
+    minPurchaseQuantity: Number(productForm.minPurchaseQuantity) || 1,
+    maxPurchaseQuantity: productForm.maxPurchaseQuantity == null ? null : Number(productForm.maxPurchaseQuantity),
+    sort: Number(productForm.sort) || 0,
+    status: productForm.status,
+  }
+
+  try {
+    if (productModalMode.value === 'create') {
+      await requestJson<ProductResponse>('/api/admin/products', { method: 'POST', body })
+    } else {
+      await requestJson<ProductResponse>(`/api/admin/products/${productForm.id}`, { method: 'PUT', body })
+    }
+    productModalOpen.value = false
+    await loadProducts()
+  } catch (error) {
+    productMessage.value = error instanceof Error ? error.message : '商品保存失败'
+  } finally {
+    savingProduct.value = false
+  }
+}
+
+async function changeProductStatus(product: ProductResponse) {
+  const nextStatus = product.status === 1 ? 0 : 1
+  product.status = nextStatus
+  try {
+    await requestJson<ProductResponse>(`/api/admin/products/${product.id}/status`, {
+      method: 'PATCH',
+      body: { status: nextStatus },
+    })
+  } catch (error) {
+    product.status = nextStatus === 1 ? 0 : 1
+    productMessage.value = error instanceof Error ? error.message : '商品状态更新失败'
+  }
+}
+
+async function deleteProduct(product: ProductResponse) {
+  if (!window.confirm(`确定删除商品“${product.name}”吗？`)) return
+  productMessage.value = ''
+  try {
+    await requestJson<void>(`/api/admin/products/${product.id}`, { method: 'DELETE' })
+    await loadProducts()
+  } catch (error) {
+    productMessage.value = error instanceof Error ? error.message : '商品删除失败'
+  }
+}
+
+async function uploadProductImage(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file || productImageUploading.value) return
+  productImageUploading.value = true
+  productMessage.value = ''
+
+  try {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('scene', 'product')
+    const result = await requestForm<ImageUploadResponse>('/api/admin/files/images', formData)
+    productForm.image = result.data.url
+    await loadMediaAssets()
+  } catch (error) {
+    productMessage.value = error instanceof Error ? error.message : '商品图片上传失败'
+  } finally {
+    productImageUploading.value = false
+    input.value = ''
+  }
+}
+
+function openProductMediaAssetPicker() {
+  mediaAssetPickerTarget.value = 'product'
+  mediaAssetPickerOpen.value = true
+  mediaAssetFilters.scene = 'product'
+  loadMediaAssets()
+}
+
+function productTypeLabel(productType: ProductType) {
+  const labels: Record<ProductType, string> = {
+    VIRTUAL: '虚拟商品',
+    CARD: '卡密商品',
+    NORMAL: '普通商品',
+  }
+  return labels[productType]
+}
+
+function formatMoney(value?: number | null) {
+  if (value == null) return '-'
+  return `¥${Number(value).toFixed(2)}`
 }
 
 function isImageIcon(icon?: string | null) {
@@ -1234,6 +1725,108 @@ async function requestForm<T>(
         </section>
       </div>
 
+      <div v-else-if="adminView === 'product'" class="admin-content">
+        <section class="page-heading">
+          <h2>商品管理</h2>
+          <p>维护商品基础信息、售价、图片、下单模板和购买限制</p>
+        </section>
+
+        <section class="category-panel">
+          <div class="category-toolbar pricing-toolbar">
+            <button class="primary-action" type="button" @click="openCreateProductModal()">
+              <Plus :size="18" />
+              <span>添加商品</span>
+            </button>
+            <label>
+              <span>商品名称</span>
+              <input v-model="productFilters.name" placeholder="输入名称筛选" type="text" @keyup.enter="loadProducts" />
+            </label>
+            <label>
+              <span>商品类型</span>
+              <select v-model="productFilters.productType">
+                <option value="">全部</option>
+                <option value="VIRTUAL">虚拟商品</option>
+                <option value="CARD">卡密商品</option>
+                <option value="NORMAL">普通商品</option>
+              </select>
+            </label>
+            <label>
+              <span>商品分类</span>
+              <select v-model="productFilters.categoryId">
+                <option value="">全部</option>
+                <option v-for="item in flatCategoryOptions" :key="item.id" :value="item.id">{{ item.name }}</option>
+              </select>
+            </label>
+            <label>
+              <span>状态</span>
+              <select v-model="productFilters.status">
+                <option value="">全部</option>
+                <option :value="1">启用</option>
+                <option :value="0">禁用</option>
+              </select>
+            </label>
+            <button class="soft-action" type="button" @click="loadProducts">筛选</button>
+            <button class="soft-action" type="button" @click="resetProductFilters">重置</button>
+            <p v-if="productLoading" class="toolbar-note">正在加载商品...</p>
+          </div>
+
+          <p v-if="productMessage" class="category-message">{{ productMessage }}</p>
+
+          <div class="category-table" role="table" aria-label="商品列表">
+            <div class="product-row table-head" role="row">
+              <span>图片</span>
+              <span>商品</span>
+              <span>分类</span>
+              <span>成本价</span>
+              <span>售价</span>
+              <span>面值</span>
+              <span>定价模板</span>
+              <span>下单模板</span>
+              <span>限购</span>
+              <span>状态</span>
+              <span>操作</span>
+            </div>
+
+            <div v-for="product in products" :key="product.id" class="product-row" role="row">
+              <span class="product-thumb">
+                <img v-if="product.image" :src="product.image" alt="" />
+                <Package v-else :size="20" />
+              </span>
+              <span class="template-name">
+                <strong>{{ product.name }}</strong>
+                <small>{{ productTypeLabel(product.productType) }} · #{{ product.id }}</small>
+              </span>
+              <span>{{ product.categoryName || '-' }}</span>
+              <strong>{{ formatMoney(product.costPrice) }}</strong>
+              <strong class="pricing-value">{{ formatMoney(product.salePrice) }}</strong>
+              <span>{{ formatMoney(product.faceValue) }}</span>
+              <span>{{ product.pricingTemplateName || '-' }}</span>
+              <span>{{ product.orderTemplateName || '-' }}</span>
+              <span>{{ product.minPurchaseQuantity }} - {{ product.maxPurchaseQuantity || '不限' }}</span>
+              <button class="switch" :class="{ on: product.status === 1 }" type="button" @click="changeProductStatus(product)">
+                <span></span>
+              </button>
+              <span class="row-actions">
+                <button class="text-action edit" type="button" @click="openEditProductModal(product)">
+                  <Edit3 :size="14" />
+                  编辑
+                </button>
+                <button class="text-action danger" type="button" @click="deleteProduct(product)">
+                  <Trash2 :size="14" />
+                  删除
+                </button>
+              </span>
+            </div>
+
+            <div v-if="!products.length && !productLoading" class="empty-row">暂无商品数据</div>
+          </div>
+
+          <footer class="category-footer">
+            <span>共 {{ products.length }} 条记录</span>
+          </footer>
+        </section>
+      </div>
+
       <div v-else-if="adminView === 'category'" class="admin-content">
         <section class="page-heading">
           <h2>商品分类</h2>
@@ -1412,6 +2005,81 @@ async function requestForm<T>(
         </section>
       </div>
 
+      <div v-else-if="adminView === 'orderTemplate'" class="admin-content">
+        <section class="page-heading">
+          <h2>下单模板</h2>
+          <p>维护用户下单时需要填写的字段组合</p>
+        </section>
+
+        <section class="category-panel">
+          <div class="category-toolbar pricing-toolbar">
+            <button class="primary-action" type="button" @click="openCreateOrderTemplateModal()">
+              <Plus :size="18" />
+              <span>添加模板</span>
+            </button>
+            <label>
+              <span>模板名称</span>
+              <input v-model="orderTemplateFilters.name" placeholder="输入名称筛选" type="text" @keyup.enter="loadOrderTemplates" />
+            </label>
+            <label>
+              <span>状态</span>
+              <select v-model="orderTemplateFilters.status">
+                <option value="">全部</option>
+                <option :value="1">启用</option>
+                <option :value="0">禁用</option>
+              </select>
+            </label>
+            <button class="soft-action" type="button" @click="loadOrderTemplates">筛选</button>
+            <button class="soft-action" type="button" @click="resetOrderTemplateFilters">重置</button>
+            <p v-if="orderTemplateLoading" class="toolbar-note">正在加载模板...</p>
+          </div>
+
+          <p v-if="orderTemplateMessage" class="category-message">{{ orderTemplateMessage }}</p>
+
+          <div class="category-table" role="table" aria-label="下单模板列表">
+            <div class="order-template-row table-head" role="row">
+              <span>模板编号</span>
+              <span>模板名称</span>
+              <span>字段组合</span>
+              <span>排序号</span>
+              <span>状态</span>
+              <span>更新时间</span>
+              <span>操作</span>
+            </div>
+
+            <div v-for="template in orderTemplates" :key="template.id" class="order-template-row" role="row">
+              <strong>{{ template.id }}</strong>
+              <span class="template-name">
+                <strong>{{ template.name }}</strong>
+                <small v-if="template.description">{{ template.description }}</small>
+              </span>
+              <span>{{ orderTemplateFieldSummary(template) }}</span>
+              <span>{{ template.sort }}</span>
+              <button class="switch" :class="{ on: template.status === 1 }" type="button" @click="changeOrderTemplateStatus(template)">
+                <span></span>
+              </button>
+              <span>{{ formatDateTime(template.updateTime || template.createTime) }}</span>
+              <span class="row-actions">
+                <button class="text-action edit" type="button" @click="openEditOrderTemplateModal(template)">
+                  <Edit3 :size="14" />
+                  编辑
+                </button>
+                <button class="text-action danger" type="button" @click="deleteOrderTemplate(template)">
+                  <Trash2 :size="14" />
+                  删除
+                </button>
+              </span>
+            </div>
+
+            <div v-if="!orderTemplates.length && !orderTemplateLoading" class="empty-row">暂无下单模板数据</div>
+          </div>
+
+          <footer class="category-footer">
+            <span>共 {{ orderTemplates.length }} 条记录</span>
+          </footer>
+        </section>
+      </div>
+
       <div v-else-if="adminView === 'mediaAsset'" class="admin-content">
         <section class="page-heading">
           <h2>素材管理</h2>
@@ -1547,6 +2215,194 @@ async function requestForm<T>(
           <button class="soft-action" type="button" @click="modalOpen = false">取消</button>
           <button class="primary-action" type="submit" :disabled="savingCategory || !categoryForm.name.trim()">
             {{ savingCategory ? '保存中...' : '保存' }}
+          </button>
+        </footer>
+      </form>
+    </div>
+
+    <div v-if="productModalOpen" class="modal-mask" role="dialog" aria-modal="true">
+      <form class="category-modal product-modal" @submit.prevent="saveProduct">
+        <header>
+          <h2>{{ productModalMode === 'create' ? '添加商品' : '编辑商品' }}</h2>
+          <button type="button" aria-label="关闭" @click="productModalOpen = false"><X :size="18" /></button>
+        </header>
+
+        <label>
+          <span>商品名称</span>
+          <input v-model="productForm.name" maxlength="100" placeholder="请输入商品名称" type="text" />
+        </label>
+
+        <label>
+          <span>商品类型</span>
+          <select v-model="productForm.productType">
+            <option value="VIRTUAL">虚拟商品</option>
+            <option value="CARD">卡密商品</option>
+            <option value="NORMAL">普通商品</option>
+          </select>
+        </label>
+
+        <label>
+          <span>商品分类</span>
+          <select v-model="productForm.categoryId">
+            <option value="" disabled>请选择分类</option>
+            <option v-for="item in flatCategoryOptions" :key="item.id" :value="item.id">{{ item.name }}</option>
+          </select>
+        </label>
+
+        <label>
+          <span>定价模板</span>
+          <select v-model="productForm.pricingTemplateId">
+            <option value="" disabled>请选择定价模板</option>
+            <option v-for="template in pricingTemplates" :key="template.id" :value="template.id">
+              {{ template.name }} · {{ formatPricingValue(template) }}
+            </option>
+          </select>
+        </label>
+
+        <label>
+          <span>下单模板</span>
+          <select v-model="productForm.orderTemplateId">
+            <option value="" disabled>请选择下单模板</option>
+            <option v-for="template in orderTemplates" :key="template.id" :value="template.id">
+              {{ template.name }}
+            </option>
+          </select>
+        </label>
+
+        <div class="form-grid two">
+          <label>
+            <span>成本价</span>
+            <input v-model.number="productForm.costPrice" min="0" step="0.01" type="number" />
+          </label>
+          <label>
+            <span>面值/原价</span>
+            <input v-model.number="productForm.faceValue" min="0" step="0.01" type="number" />
+          </label>
+        </div>
+
+        <div class="sale-preview">
+          <span>售价预览</span>
+          <strong>{{ productSalePricePreview == null ? '-' : formatMoney(productSalePricePreview) }}</strong>
+        </div>
+
+        <label>
+          <span>商品图片</span>
+          <input v-model="productForm.image" placeholder="可填写图片 URL 或上传图片" />
+        </label>
+
+        <div class="icon-upload-field">
+          <span class="product-thumb preview">
+            <img v-if="productForm.image" :src="productForm.image" alt="" />
+            <Package v-else :size="20" />
+          </span>
+          <label class="upload-button">
+            <input accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" type="file" :disabled="productImageUploading" @change="uploadProductImage" />
+            <span>{{ productImageUploading ? '上传中...' : '上传图片' }}</span>
+          </label>
+          <button class="soft-action" type="button" :disabled="productImageUploading" @click="openProductMediaAssetPicker">
+            选择素材
+          </button>
+          <button class="soft-action" type="button" :disabled="productImageUploading || !productForm.image" @click="productForm.image = ''">
+            清空
+          </button>
+        </div>
+
+        <div class="form-grid two">
+          <label>
+            <span>最小购买数量</span>
+            <input v-model.number="productForm.minPurchaseQuantity" min="1" type="number" />
+          </label>
+          <label>
+            <span>最大购买数量</span>
+            <input v-model.number="productForm.maxPurchaseQuantity" min="1" placeholder="不填为不限" type="number" />
+          </label>
+        </div>
+
+        <div class="form-grid two">
+          <label>
+            <span>排序号</span>
+            <input v-model.number="productForm.sort" min="0" type="number" />
+          </label>
+          <label>
+            <span>状态</span>
+            <select v-model.number="productForm.status">
+              <option :value="1">启用</option>
+              <option :value="0">禁用</option>
+            </select>
+          </label>
+        </div>
+
+        <footer>
+          <button class="soft-action" type="button" @click="productModalOpen = false">取消</button>
+          <button class="primary-action" type="submit" :disabled="savingProduct || !productForm.name.trim()">
+            {{ savingProduct ? '保存中...' : '保存' }}
+          </button>
+        </footer>
+      </form>
+    </div>
+
+    <div v-if="orderTemplateModalOpen" class="modal-mask" role="dialog" aria-modal="true">
+      <form class="category-modal order-template-modal" @submit.prevent="saveOrderTemplate">
+        <header>
+          <h2>{{ orderTemplateModalMode === 'create' ? '添加下单模板' : '编辑下单模板' }}</h2>
+          <button type="button" aria-label="关闭" @click="orderTemplateModalOpen = false"><X :size="18" /></button>
+        </header>
+
+        <label>
+          <span>模板名称</span>
+          <input v-model="orderTemplateForm.name" maxlength="50" placeholder="例如：手机号+邮箱号" type="text" />
+        </label>
+
+        <div class="form-grid two">
+          <label>
+            <span>排序号</span>
+            <input v-model.number="orderTemplateForm.sort" min="0" type="number" />
+          </label>
+          <label>
+            <span>状态</span>
+            <select v-model.number="orderTemplateForm.status">
+              <option :value="1">启用</option>
+              <option :value="0">禁用</option>
+            </select>
+          </label>
+        </div>
+
+        <label>
+          <span>备注</span>
+          <textarea v-model="orderTemplateForm.description" maxlength="255" placeholder="可填写模板说明"></textarea>
+        </label>
+
+        <section class="template-field-editor">
+          <header>
+            <h3>下单字段</h3>
+            <button class="soft-action" type="button" @click="addOrderTemplateField">添加字段</button>
+          </header>
+
+          <div v-for="(field, index) in orderTemplateForm.fields" :key="index" class="template-field-row">
+            <select v-model="field.fieldType" @change="applyFieldTypeDefaults(field)">
+              <option value="PHONE">手机号</option>
+              <option value="QQ">QQ号</option>
+              <option value="EMAIL">邮箱号</option>
+              <option value="ADDRESS">收货地址</option>
+              <option value="TEXT">自定义文本</option>
+            </select>
+            <input v-model="field.fieldName" maxlength="50" placeholder="字段名称" />
+            <input v-model="field.placeholder" maxlength="255" placeholder="输入提示" />
+            <label class="inline-check">
+              <input v-model="field.required" type="checkbox" />
+              <span>必填</span>
+            </label>
+            <input v-model.number="field.sort" min="0" type="number" />
+            <button class="text-action danger" type="button" :disabled="orderTemplateForm.fields.length <= 1" @click="removeOrderTemplateField(index)">
+              <Trash2 :size="14" />
+            </button>
+          </div>
+        </section>
+
+        <footer>
+          <button class="soft-action" type="button" @click="orderTemplateModalOpen = false">取消</button>
+          <button class="primary-action" type="submit" :disabled="savingOrderTemplate || !orderTemplateForm.name.trim()">
+            {{ savingOrderTemplate ? '保存中...' : '保存' }}
           </button>
         </footer>
       </form>

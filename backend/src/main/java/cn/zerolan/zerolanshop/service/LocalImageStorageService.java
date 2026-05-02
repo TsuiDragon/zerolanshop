@@ -5,8 +5,10 @@ import cn.zerolan.zerolanshop.domain.dto.ImageUploadResponse;
 import cn.zerolan.zerolanshop.domain.dto.MediaAssetResponse;
 import cn.zerolan.zerolanshop.domain.dto.MediaAssetUsageResponse;
 import cn.zerolan.zerolanshop.domain.entity.MediaAsset;
+import cn.zerolan.zerolanshop.domain.entity.Product;
 import cn.zerolan.zerolanshop.domain.entity.ProductCategory;
 import cn.zerolan.zerolanshop.mapper.MediaAssetMapper;
+import cn.zerolan.zerolanshop.mapper.ProductMapper;
 import cn.zerolan.zerolanshop.mapper.ProductCategoryMapper;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import org.springframework.stereotype.Service;
@@ -40,15 +42,18 @@ public class LocalImageStorageService {
     private final UploadProperties uploadProperties;
     private final MediaAssetMapper mediaAssetMapper;
     private final ProductCategoryMapper productCategoryMapper;
+    private final ProductMapper productMapper;
 
     public LocalImageStorageService(
             UploadProperties uploadProperties,
             MediaAssetMapper mediaAssetMapper,
-            ProductCategoryMapper productCategoryMapper
+            ProductCategoryMapper productCategoryMapper,
+            ProductMapper productMapper
     ) {
         this.uploadProperties = uploadProperties;
         this.mediaAssetMapper = mediaAssetMapper;
         this.productCategoryMapper = productCategoryMapper;
+        this.productMapper = productMapper;
     }
 
     public ImageUploadResponse upload(MultipartFile file, String scene) {
@@ -159,6 +164,15 @@ public class LocalImageStorageService {
             usage.setType("category");
             usage.setId(category.getId());
             usage.setName(category.getName());
+            usages.add(usage);
+        }
+        QueryWrapper<Product> productWrapper = new QueryWrapper<>();
+        productWrapper.eq("image", url);
+        for (Product product : productMapper.selectList(productWrapper)) {
+            MediaAssetUsageResponse usage = new MediaAssetUsageResponse();
+            usage.setType("product");
+            usage.setId(product.getId());
+            usage.setName(product.getName());
             usages.add(usage);
         }
         return usages;

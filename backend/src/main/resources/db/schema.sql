@@ -100,3 +100,59 @@ CREATE TABLE IF NOT EXISTS `media_asset` (
     KEY `idx_media_asset_status` (`status`),
     KEY `idx_media_asset_create_time` (`create_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='图片素材表';
+
+-- Product management extension schema.
+CREATE TABLE IF NOT EXISTS `order_template` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '下单模板ID',
+    `name` VARCHAR(50) NOT NULL COMMENT '模板名称',
+    `description` VARCHAR(255) DEFAULT NULL COMMENT '备注',
+    `sort` INT NOT NULL DEFAULT 0 COMMENT '排序号，值越小越靠前',
+    `status` TINYINT NOT NULL DEFAULT 1 COMMENT '状态：0-禁用，1-启用',
+    `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_order_template_name` (`name`),
+    KEY `idx_order_template_status` (`status`),
+    KEY `idx_order_template_sort` (`sort`, `id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='下单模板表';
+
+CREATE TABLE IF NOT EXISTS `order_template_field` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '模板字段ID',
+    `template_id` BIGINT NOT NULL COMMENT '下单模板ID',
+    `field_type` VARCHAR(20) NOT NULL COMMENT '字段类型：PHONE/QQ/EMAIL/ADDRESS/TEXT',
+    `field_name` VARCHAR(50) NOT NULL COMMENT '字段显示名称',
+    `placeholder` VARCHAR(255) DEFAULT NULL COMMENT '输入提示',
+    `required` TINYINT NOT NULL DEFAULT 1 COMMENT '是否必填：0-否，1-是',
+    `sort` INT NOT NULL DEFAULT 0 COMMENT '排序号，值越小越靠前',
+    `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_order_template_field_template` (`template_id`, `sort`, `id`),
+    KEY `idx_order_template_field_type` (`field_type`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='下单模板字段表';
+
+CREATE TABLE IF NOT EXISTS `product` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '商品ID',
+    `product_type` VARCHAR(20) NOT NULL COMMENT '商品类型：VIRTUAL-虚拟商品，CARD-卡密商品，NORMAL-普通商品',
+    `category_id` BIGINT NOT NULL COMMENT '商品分类ID',
+    `name` VARCHAR(100) NOT NULL COMMENT '商品名称',
+    `cost_price` DECIMAL(10,2) NOT NULL DEFAULT '0.00' COMMENT '成本价',
+    `sale_price` DECIMAL(10,2) NOT NULL DEFAULT '0.00' COMMENT '售价',
+    `pricing_template_id` BIGINT NOT NULL COMMENT '定价模板ID',
+    `image` VARCHAR(500) DEFAULT NULL COMMENT '商品图片URL',
+    `face_value` DECIMAL(10,2) DEFAULT NULL COMMENT '商品面值/原价，用作划线价',
+    `order_template_id` BIGINT NOT NULL COMMENT '下单模板ID',
+    `min_purchase_quantity` INT NOT NULL DEFAULT 1 COMMENT '单次最小购买数量',
+    `max_purchase_quantity` INT DEFAULT NULL COMMENT '单次最大购买数量，空表示不限制',
+    `sort` INT NOT NULL DEFAULT 0 COMMENT '排序号，值越小越靠前',
+    `status` TINYINT NOT NULL DEFAULT 1 COMMENT '状态：0-禁用，1-启用',
+    `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_product_type` (`product_type`),
+    KEY `idx_product_category` (`category_id`),
+    KEY `idx_product_pricing_template` (`pricing_template_id`),
+    KEY `idx_product_order_template` (`order_template_id`),
+    KEY `idx_product_status` (`status`),
+    KEY `idx_product_sort` (`sort`, `id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='商品表';
