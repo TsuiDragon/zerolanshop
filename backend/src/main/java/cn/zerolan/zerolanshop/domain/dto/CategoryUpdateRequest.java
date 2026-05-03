@@ -7,6 +7,7 @@ public class CategoryUpdateRequest {
     private Long parentId;
     private String name;
     private String icon;
+    private String description;
     private Integer sort;
     private Integer status;
 }

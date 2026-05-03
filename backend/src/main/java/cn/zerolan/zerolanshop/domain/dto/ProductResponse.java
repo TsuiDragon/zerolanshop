@@ -16,6 +16,7 @@ public class ProductResponse {
     private String name;
     private BigDecimal costPrice;
     private BigDecimal salePrice;
+    private BigDecimal terminalLimitPrice;
     private String supplyCostStrategy;
     private Long pricingTemplateId;
     private String pricingTemplateName;
@@ -46,6 +47,7 @@ public class ProductResponse {
         response.setName(product.getName());
         response.setCostPrice(product.getCostPrice());
         response.setSalePrice(product.getSalePrice());
+        response.setTerminalLimitPrice(product.getTerminalLimitPrice());
         response.setSupplyCostStrategy(product.getSupplyCostStrategy());
         response.setPricingTemplateId(product.getPricingTemplateId());
         response.setPricingTemplateName(pricingTemplateName);

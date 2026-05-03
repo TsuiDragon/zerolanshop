@@ -11,6 +11,7 @@ public class ProductCreateRequest {
     private Long categoryId;
     private String name;
     private BigDecimal costPrice;
+    private BigDecimal terminalLimitPrice;
     private String supplyCostStrategy;
     private Long pricingTemplateId;
     private String image;

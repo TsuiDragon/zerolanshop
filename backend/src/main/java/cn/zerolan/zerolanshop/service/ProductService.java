@@ -96,7 +96,7 @@ public class ProductService {
         Product product = new Product();
         BigDecimal costPrice = resolveCostPrice(request.getCostPrice(), request.getSupplyCostStrategy(), request.getSupplyBindings());
         applyEditableFields(product, request.getProductType(), request.getCategoryId(), request.getName(),
-                costPrice, request.getSupplyCostStrategy(), request.getPricingTemplateId(), request.getImage(), request.getFaceValue(),
+                costPrice, request.getTerminalLimitPrice(), request.getSupplyCostStrategy(), request.getPricingTemplateId(), request.getImage(), request.getFaceValue(),
                 request.getOrderTemplateId(), request.getMinPurchaseQuantity(), request.getMaxPurchaseQuantity(),
                 request.getSort(), request.getStatus() == null ? STATUS_ENABLED : request.getStatus());
         productMapper.insert(product);
@@ -112,7 +112,7 @@ public class ProductService {
         Product product = getExistingProduct(id);
         BigDecimal costPrice = resolveCostPrice(request.getCostPrice(), request.getSupplyCostStrategy(), request.getSupplyBindings());
         applyEditableFields(product, request.getProductType(), request.getCategoryId(), request.getName(),
-                costPrice, request.getSupplyCostStrategy(), request.getPricingTemplateId(), request.getImage(), request.getFaceValue(),
+                costPrice, request.getTerminalLimitPrice(), request.getSupplyCostStrategy(), request.getPricingTemplateId(), request.getImage(), request.getFaceValue(),
                 request.getOrderTemplateId(), request.getMinPurchaseQuantity(), request.getMaxPurchaseQuantity(),
                 request.getSort(), request.getStatus() == null ? product.getStatus() : request.getStatus());
         productMapper.updateById(product);
@@ -144,6 +144,7 @@ public class ProductService {
             Long categoryId,
             String name,
             BigDecimal costPrice,
+            BigDecimal terminalLimitPrice,
             String supplyCostStrategy,
             Long pricingTemplateId,
             String image,
@@ -162,6 +163,7 @@ public class ProductService {
         validateSort(sort);
         String normalizedSupplyCostStrategy = normalizeSupplyCostStrategy(supplyCostStrategy);
         BigDecimal normalizedCostPrice = normalizeMoney(costPrice, "Cost price");
+        BigDecimal normalizedTerminalLimitPrice = normalizeOptionalMoney(terminalLimitPrice, "Terminal limit price");
         BigDecimal normalizedFaceValue = normalizeOptionalMoney(faceValue, "Face value");
         validatePurchaseQuantity(minPurchaseQuantity, maxPurchaseQuantity);
 
@@ -170,6 +172,7 @@ public class ProductService {
         product.setName(normalizeName(name));
         product.setCostPrice(normalizedCostPrice);
         product.setSalePrice(pricingTemplateService.calculateSalePrice(normalizedCostPrice, pricingTemplate));
+        product.setTerminalLimitPrice(normalizedTerminalLimitPrice);
         product.setSupplyCostStrategy(normalizedSupplyCostStrategy);
         product.setPricingTemplateId(pricingTemplate.getId());
         product.setImage(normalizeImage(image));

@@ -102,6 +102,7 @@ public class ProductCategoryService {
         category.setParentId(parentId);
         category.setName(name);
         category.setIcon(normalizeText(request.getIcon()));
+        category.setDescription(normalizeDescription(request.getDescription()));
         category.setSort(nextSort(parentId));
         category.setStatus(status);
         productCategoryMapper.insert(category);
@@ -132,6 +133,7 @@ public class ProductCategoryService {
         category.setParentId(parentId);
         category.setName(name);
         category.setIcon(normalizeText(request.getIcon()));
+        category.setDescription(normalizeDescription(request.getDescription()));
         category.setStatus(status);
         if (request.getSort() != null) {
             if (request.getSort() < 0) {
@@ -241,6 +243,14 @@ public class ProductCategoryService {
         }
         if (normalized.length() > 50) {
             throw new RuntimeException("Category name must be 50 characters or fewer");
+        }
+        return normalized;
+    }
+
+    private String normalizeDescription(String description) {
+        String normalized = normalizeText(description);
+        if (normalized != null && normalized.length() > 255) {
+            throw new RuntimeException("Category description must be 255 characters or fewer");
         }
         return normalized;
     }

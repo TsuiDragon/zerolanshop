@@ -19,6 +19,7 @@ import {
   Package,
   Plus,
   ReceiptText,
+  Search,
   Settings,
   ShoppingCart,
   Trash2,
@@ -32,6 +33,7 @@ import {
 
 type Page = 'admin' | 'adminAuth' | 'home' | 'userAuth'
 type AdminView = 'home' | 'product' | 'category' | 'pricingTemplate' | 'orderTemplate' | 'mediaAsset' | 'supplyChannel'
+type BuyerView = 'dashboard' | 'benefits' | 'products'
 type AuthMode = 'login' | 'register'
 type PricingType = 'PERCENTAGE' | 'FIXED_AMOUNT'
 type ProductType = 'VIRTUAL' | 'CARD' | 'NORMAL'
@@ -94,6 +96,7 @@ type CategoryResponse = {
   parentId: number
   name: string
   icon?: string | null
+  description?: string | null
   sort: number
   status: number
   createTime?: string
@@ -114,6 +117,7 @@ type CategoryForm = {
   parentId: number
   name: string
   icon: string
+  description: string
   sort?: number
   status: number
 }
@@ -189,6 +193,7 @@ type ProductResponse = {
   name: string
   costPrice: number
   salePrice: number
+  terminalLimitPrice?: number | null
   supplyCostStrategy?: SupplyCostStrategy | null
   pricingTemplateId: number
   pricingTemplateName?: string | null
@@ -271,6 +276,7 @@ type ProductForm = {
   categoryId: number | ''
   name: string
   costPrice: number
+  terminalLimitPrice: number | null
   supplyCostStrategy: SupplyCostStrategy
   pricingTemplateId: number | ''
   image: string
@@ -290,8 +296,11 @@ type ProductFilters = {
   status: '' | 0 | 1
 }
 
+type BuyerProductStatus = '' | 0 | 1
+
 const currentPath = ref(window.location.pathname)
 const adminView = ref<AdminView>(getAdminViewFromPath(currentPath.value))
+const buyerView = ref<BuyerView>('benefits')
 
 const page = computed<Page>(() => {
   if (currentPath.value === '/login') return 'userAuth'
@@ -306,7 +315,13 @@ const page = computed<Page>(() => {
     currentPath.value === '/admin/goods/media-assets' ||
     currentPath.value === '/admin/goods/supply-channels'
   ) return 'admin'
-  if (currentPath.value === '/index') return 'home'
+  if (
+    currentPath.value === '/home' ||
+    currentPath.value === '/index' ||
+    currentPath.value === '/purchase' ||
+    currentPath.value === '/purchase/benefits' ||
+    currentPath.value === '/purchase/products'
+  ) return 'home'
   return 'userAuth'
 })
 
@@ -340,6 +355,7 @@ const categoryForm = reactive<CategoryForm>({
   parentId: 0,
   name: '',
   icon: '',
+  description: '',
   status: 1,
 })
 
@@ -399,6 +415,7 @@ const productForm = reactive<ProductForm>({
   categoryId: '',
   name: '',
   costPrice: 0,
+  terminalLimitPrice: null,
   supplyCostStrategy: 'LOWEST',
   pricingTemplateId: '',
   image: '',
@@ -443,6 +460,19 @@ const mediaAssetFilters = reactive<MediaAssetFilters>({
   filename: '',
   used: '',
 })
+const buyerCategories = ref<CategoryTreeResponse[]>([])
+const buyerProducts = ref<ProductResponse[]>([])
+const buyerStoreLoading = ref(false)
+const buyerStoreMessage = ref('')
+const buyerSearch = ref('')
+const buyerCategoryId = ref<number | ''>('')
+const buyerProductStatus = ref<BuyerProductStatus>('')
+const buyerProductPage = ref(1)
+const buyerProductPageSize = ref(10)
+const buyerCategoryModalOpen = ref(false)
+const viewingBuyerCategory = ref<CategoryResponse | CategoryTreeResponse | null>(null)
+const buyerCategoryPickerOpen = ref(false)
+const activeBuyerParentCategoryId = ref<number | null>(null)
 
 const adminMenus = [
   { name: '首页', icon: Home, view: 'home' as AdminView },
@@ -541,20 +571,67 @@ const productSalePricePreview = computed(() => {
   }
   return cost + Number(template.pricingValue)
 })
+const buyerCategoryTabs = computed(() => [
+  { id: '' as const, name: '全部权益' },
+  ...buyerCategories.value.map((category) => ({ id: category.id, name: category.name })),
+])
+const filteredBuyerProducts = computed(() => {
+  const keyword = buyerSearch.value.trim().toLowerCase()
+  const categoryIds = resolveBuyerCategoryIds(buyerCategoryId.value)
+  return buyerProducts.value.filter((product) => {
+    const matchesKeyword =
+      !keyword ||
+      product.name.toLowerCase().includes(keyword) ||
+      (product.categoryName || '').toLowerCase().includes(keyword)
+    const matchesCategory = buyerCategoryId.value === '' || categoryIds.includes(product.categoryId)
+    const matchesStatus = buyerProductStatus.value === '' || product.status === buyerProductStatus.value
+    return matchesKeyword && matchesCategory && matchesStatus
+  })
+})
+const buyerProductsPageCount = computed(() => Math.max(1, Math.ceil(filteredBuyerProducts.value.length / buyerProductPageSize.value)))
+const pagedBuyerProducts = computed(() => {
+  const page = Math.min(buyerProductPage.value, buyerProductsPageCount.value)
+  const start = (page - 1) * buyerProductPageSize.value
+  return filteredBuyerProducts.value.slice(start, start + buyerProductPageSize.value)
+})
+const visibleBuyerCategories = computed(() => {
+  const keyword = buyerSearch.value.trim().toLowerCase()
+  const categoryGroups =
+    buyerCategoryId.value === ''
+      ? buyerCategories.value
+      : buyerCategories.value.filter((category) => category.id === buyerCategoryId.value)
+  const categories = categoryGroups.flatMap((category) =>
+    category.children?.length ? category.children : [category],
+  )
+  return categories.filter((category) => !keyword || category.name.toLowerCase().includes(keyword))
+})
+const viewingCategoryProducts = computed(() =>
+  viewingBuyerCategory.value ? productsInBuyerCategory(viewingBuyerCategory.value) : [],
+)
+const activeBuyerParentCategory = computed(() => {
+  if (activeBuyerParentCategoryId.value == null) return buyerCategories.value[0] || null
+  return buyerCategories.value.find((category) => category.id === activeBuyerParentCategoryId.value) || null
+})
+const buyerCategoryPickerLabel = computed(() => {
+  if (buyerCategoryId.value === '') return '请选择商品分类'
+  for (const category of buyerCategories.value) {
+    if (category.id === buyerCategoryId.value) return category.name
+    const child = category.children?.find((item) => item.id === buyerCategoryId.value)
+    if (child) return `${category.name} / ${child.name}`
+  }
+  return '请选择商品分类'
+})
 
 onMounted(() => {
   normalizeRoute()
   syncAdminViewFromPath()
+  syncBuyerView()
 })
 
 function normalizeRoute() {
   if (currentPath.value === '/') {
     window.history.replaceState({}, '', '/login')
     currentPath.value = '/login'
-  }
-  if (currentPath.value === '/home') {
-    window.history.replaceState({}, '', '/index')
-    currentPath.value = '/index'
   }
   if (currentPath.value === '/admin') {
     window.history.replaceState({}, '', '/admin/login')
@@ -566,6 +643,7 @@ window.addEventListener('popstate', () => {
   currentPath.value = window.location.pathname
   normalizeRoute()
   syncAdminViewFromPath()
+  syncBuyerView()
 })
 
 function navigate(path: string) {
@@ -573,6 +651,7 @@ function navigate(path: string) {
   currentPath.value = path
   normalizeRoute()
   syncAdminViewFromPath()
+  syncBuyerView()
 }
 
 function switchMode(nextMode: AuthMode) {
@@ -680,6 +759,104 @@ function isGoodsAdminView() {
   return ['product', 'category', 'pricingTemplate', 'orderTemplate', 'mediaAsset', 'supplyChannel'].includes(adminView.value)
 }
 
+function syncBuyerView() {
+  if (page.value !== 'home') return
+  buyerView.value = getBuyerViewFromPath(currentPath.value)
+  if (!buyerProducts.value.length && !buyerStoreLoading.value) {
+    loadBuyerStoreData()
+  }
+}
+
+function switchBuyerView(view: BuyerView) {
+  navigate(getBuyerPath(view))
+}
+
+function getBuyerPath(view: BuyerView) {
+  if (view === 'benefits') return '/purchase/benefits'
+  if (view === 'products') return '/purchase/products'
+  return '/index'
+}
+
+function getBuyerViewFromPath(path: string): BuyerView {
+  if (path === '/purchase' || path === '/purchase/benefits') return 'benefits'
+  if (path === '/purchase/products') return 'products'
+  return 'dashboard'
+}
+
+function selectBuyerCategory(id: number | '') {
+  buyerCategoryId.value = id
+  buyerProductPage.value = 1
+}
+
+function toggleBuyerCategoryPicker() {
+  buyerCategoryPickerOpen.value = !buyerCategoryPickerOpen.value
+  if (buyerCategoryPickerOpen.value && activeBuyerParentCategoryId.value == null) {
+    activeBuyerParentCategoryId.value = buyerCategories.value[0]?.id || null
+  }
+}
+
+function selectBuyerParentCategory(category: CategoryTreeResponse) {
+  activeBuyerParentCategoryId.value = category.id
+  if (!category.children?.length) {
+    selectBuyerCategory(category.id)
+    buyerCategoryPickerOpen.value = false
+  }
+}
+
+function selectBuyerChildCategory(category: CategoryResponse) {
+  selectBuyerCategory(category.id)
+  buyerCategoryPickerOpen.value = false
+}
+
+function resetBuyerProductFilters() {
+  buyerSearch.value = ''
+  buyerCategoryId.value = ''
+  buyerProductStatus.value = ''
+  buyerProductPage.value = 1
+  buyerCategoryPickerOpen.value = false
+}
+
+function updateBuyerSearch(value: string) {
+  buyerSearch.value = value
+  buyerProductPage.value = 1
+}
+
+function updateBuyerProductStatus(value: BuyerProductStatus) {
+  buyerProductStatus.value = value
+  buyerProductPage.value = 1
+}
+
+function updateBuyerProductStatusFromValue(value: string) {
+  updateBuyerProductStatus(value === '' ? '' : (Number(value) as 0 | 1))
+}
+
+function updateBuyerPageSize(value: number) {
+  buyerProductPageSize.value = value
+  buyerProductPage.value = 1
+}
+
+function formatPurchaseQuantityRange(product: ProductResponse) {
+  return `${product.minPurchaseQuantity || 1} - ${product.maxPurchaseQuantity || '不限'}`
+}
+
+function productRuleTemplateLabel(product: ProductResponse) {
+  return product.orderTemplateName || '默认规则'
+}
+
+function openBuyerCategoryProducts(category: CategoryResponse | CategoryTreeResponse) {
+  viewingBuyerCategory.value = category
+  buyerCategoryModalOpen.value = true
+}
+
+function productsInBuyerCategory(category: CategoryResponse | CategoryTreeResponse) {
+  const categoryIds = resolveBuyerCategoryIds(category.id)
+  return buyerProducts.value.filter((product) => categoryIds.includes(product.categoryId))
+}
+
+function buyerCategoryProductCount(category: CategoryResponse | CategoryTreeResponse) {
+  return productsInBuyerCategory(category).length
+}
+
 async function handleAdminSubmit() {
   if (!adminUsername.value.trim() || !adminPassword.value || adminLoading.value) return
 
@@ -705,6 +882,34 @@ async function handleAdminSubmit() {
   } finally {
     adminLoading.value = false
   }
+}
+
+async function loadBuyerStoreData() {
+  buyerStoreLoading.value = true
+  buyerStoreMessage.value = ''
+
+  try {
+    const [categoryResult, productResult] = await Promise.all([
+      requestJson<CategoryTreeResponse[]>('/api/public/categories/tree', { auth: false }),
+      requestJson<ProductResponse[]>('/api/public/products', { auth: false }),
+    ])
+    buyerCategories.value = normalizeTree(categoryResult.data).filter((category) => category.status === 1)
+    buyerProducts.value = [...productResult.data]
+      .filter((product) => product.status === 1)
+      .sort((a, b) => (a.sort || 0) - (b.sort || 0) || a.id - b.id)
+    buyerProductPage.value = 1
+  } catch (error) {
+    buyerStoreMessage.value = error instanceof Error ? error.message : '采购商品加载失败'
+  } finally {
+    buyerStoreLoading.value = false
+  }
+}
+
+function resolveBuyerCategoryIds(id: number | '') {
+  if (id === '') return []
+  const category = buyerCategories.value.find((item) => item.id === id)
+  if (category) return [category.id, ...(category.children || []).map((child) => child.id)]
+  return [id]
 }
 
 async function loadCategories() {
@@ -767,6 +972,7 @@ function openCreateModal(parentId = 0) {
     parentId,
     name: '',
     icon: '',
+    description: '',
     sort: undefined,
     status: 1,
   })
@@ -780,6 +986,7 @@ function openEditModal(category: CategoryResponse) {
     parentId: category.parentId,
     name: category.name,
     icon: category.icon || '',
+    description: category.description || '',
     sort: category.sort,
     status: category.status,
   })
@@ -800,6 +1007,7 @@ async function saveCategory() {
           parentId: categoryForm.parentId,
           name: categoryForm.name.trim(),
           icon: categoryForm.icon.trim() || null,
+          description: categoryForm.description.trim() || null,
           status: categoryForm.status,
         },
       })
@@ -810,6 +1018,7 @@ async function saveCategory() {
           parentId: categoryForm.parentId,
           name: categoryForm.name.trim(),
           icon: categoryForm.icon.trim() || null,
+          description: categoryForm.description.trim() || null,
           sort: categoryForm.sort,
           status: categoryForm.status,
         },
@@ -1338,6 +1547,7 @@ async function openCreateProductModal() {
     categoryId: flatCategoryOptions.value[0]?.id || '',
     name: '',
     costPrice: 0,
+    terminalLimitPrice: null,
     supplyCostStrategy: 'LOWEST',
     pricingTemplateId: pricingTemplates.value[0]?.id || '',
     image: '',
@@ -1362,6 +1572,7 @@ async function openEditProductModal(product: ProductResponse) {
     categoryId: product.categoryId,
     name: product.name,
     costPrice: Number(product.costPrice),
+    terminalLimitPrice: product.terminalLimitPrice == null ? null : Number(product.terminalLimitPrice),
     supplyCostStrategy: product.supplyCostStrategy || 'LOWEST',
     pricingTemplateId: product.pricingTemplateId,
     image: product.image || '',
@@ -1405,6 +1616,7 @@ async function saveProduct() {
     categoryId: Number(productForm.categoryId),
     name: productForm.name.trim(),
     costPrice: resolveProductCostPrice(),
+    terminalLimitPrice: productForm.terminalLimitPrice == null ? null : Number(productForm.terminalLimitPrice),
     supplyCostStrategy: productForm.supplyCostStrategy,
     pricingTemplateId: Number(productForm.pricingTemplateId),
     image: productForm.image.trim() || null,
@@ -1839,8 +2051,8 @@ async function requestForm<T>(
         </div>
       </div>
       <nav class="buyer-nav" aria-label="采购端导航">
-        <button class="active" type="button"><Home :size="20" />主页</button>
-        <button type="button"><ShoppingCart :size="20" />采购中心</button>
+        <button :class="{ active: buyerView === 'dashboard' }" type="button" @click="navigate('/index')"><Home :size="20" />主页</button>
+        <button :class="{ active: buyerView !== 'dashboard' }" type="button" @click="navigate('/purchase/benefits')"><ShoppingCart :size="20" />采购中心</button>
         <button type="button"><Box :size="20" />订单管理</button>
         <button type="button"><WalletCards :size="20" />财务管理</button>
         <button type="button"><CreditCard :size="20" />卡密中心</button>
@@ -1852,7 +2064,11 @@ async function requestForm<T>(
 
     <section class="buyer-main">
       <header class="buyer-topbar">
-        <h1>采购工作台</h1>
+        <h1 v-if="buyerView === 'dashboard'">采购工作台</h1>
+        <nav v-else class="buyer-section-tabs" aria-label="采购中心栏目">
+          <button :class="{ active: buyerView === 'benefits' }" type="button" @click="switchBuyerView('benefits')">权益中心</button>
+          <button :class="{ active: buyerView === 'products' }" type="button" @click="switchBuyerView('products')">全部商品</button>
+        </nav>
         <div class="admin-user">
           <button class="icon-button" type="button" aria-label="通知">
             <Bell :size="20" />
@@ -1864,10 +2080,162 @@ async function requestForm<T>(
       </header>
 
       <div class="buyer-content">
-        <section class="quick-section">
+        <p v-if="buyerStoreMessage" class="buyer-message">{{ buyerStoreMessage }}</p>
+
+        <section v-if="buyerView === 'benefits'" class="buyer-store-view">
+          <div class="buyer-search-row">
+            <label class="buyer-search">
+              <Search :size="19" />
+              <input :value="buyerSearch" placeholder="搜索商品分类" type="search" @input="updateBuyerSearch(($event.target as HTMLInputElement).value)" />
+            </label>
+          </div>
+
+          <nav class="buyer-category-tabs" aria-label="权益分类">
+            <button
+              v-for="category in buyerCategoryTabs"
+              :key="category.id === '' ? 'all' : category.id"
+              :class="{ active: buyerCategoryId === category.id }"
+              type="button"
+              @click="selectBuyerCategory(category.id)"
+            >
+              {{ category.name }}
+            </button>
+          </nav>
+
+          <div class="benefit-grid">
+            <article v-for="category in visibleBuyerCategories" :key="category.id" class="benefit-card">
+              <span class="benefit-thumb">
+                <img v-if="isImageIcon(category.icon)" :src="category.icon || ''" :alt="category.name" />
+                <span v-else-if="category.icon">{{ category.icon }}</span>
+                <Package v-else :size="24" />
+              </span>
+              <div>
+                <h2>{{ category.name }}</h2>
+                <p>{{ category.description || '-' }}</p>
+                <small>共 {{ buyerCategoryProductCount(category) }} 个商品</small>
+              </div>
+              <button class="buy-action" type="button" @click="openBuyerCategoryProducts(category)">查看</button>
+            </article>
+            <div v-if="!visibleBuyerCategories.length && !buyerStoreLoading" class="empty-row">暂无商品分类</div>
+          </div>
+          <p v-if="buyerStoreLoading" class="toolbar-note">正在加载商品分类...</p>
+        </section>
+
+        <section v-else-if="buyerView === 'products'" class="buyer-store-view">
+          <div class="buyer-product-toolbar">
+            <label class="buyer-search wide">
+              <Search :size="19" />
+              <input :value="buyerSearch" placeholder="请输入商品搜索" type="search" @input="updateBuyerSearch(($event.target as HTMLInputElement).value)" @keyup.enter="buyerProductPage = 1" />
+            </label>
+            <div class="buyer-category-picker">
+              <button class="buyer-category-trigger" type="button" @click="toggleBuyerCategoryPicker">
+                <span>{{ buyerCategoryPickerLabel }}</span>
+                <ChevronDown :size="16" />
+              </button>
+              <div v-if="buyerCategoryPickerOpen" class="buyer-category-panel">
+                <div class="buyer-category-column parent">
+                  <button
+                    v-for="category in buyerCategories"
+                    :key="category.id"
+                    :class="{ active: activeBuyerParentCategory?.id === category.id }"
+                    type="button"
+                    @click="selectBuyerParentCategory(category)"
+                  >
+                    <span class="radio-dot" :class="{ checked: buyerCategoryId === category.id }"></span>
+                    <span>{{ category.name }}</span>
+                    <ChevronRight v-if="category.children?.length" :size="15" />
+                  </button>
+                </div>
+                <div class="buyer-category-column child">
+                  <button
+                    v-for="child in activeBuyerParentCategory?.children || []"
+                    :key="child.id"
+                    :class="{ active: buyerCategoryId === child.id }"
+                    type="button"
+                    @click="selectBuyerChildCategory(child)"
+                  >
+                    <span class="radio-dot" :class="{ checked: buyerCategoryId === child.id }"></span>
+                    <span>{{ child.name }}</span>
+                  </button>
+                  <div v-if="activeBuyerParentCategory && !activeBuyerParentCategory.children?.length" class="category-empty">暂无子分类</div>
+                </div>
+              </div>
+            </div>
+            <select :value="buyerProductStatus" @change="updateBuyerProductStatusFromValue(($event.target as HTMLSelectElement).value)">
+              <option value="">全部状态</option>
+              <option :value="1">正在销售</option>
+              <option :value="0">已下架</option>
+            </select>
+            <button class="primary-action" type="button" @click="buyerProductPage = 1">搜索</button>
+            <button class="soft-action" type="button" @click="resetBuyerProductFilters">重置</button>
+          </div>
+
+          <div class="buyer-product-table">
+            <div class="buyer-product-row table-head" role="row">
+              <span>商品信息</span>
+              <span>面额</span>
+              <span>采购价</span>
+              <span>终端限价</span>
+              <span>商品规则</span>
+              <span>商品状态</span>
+              <span>配置时间</span>
+              <span>操作</span>
+            </div>
+            <div v-for="product in pagedBuyerProducts" :key="product.id" class="buyer-product-row" role="row">
+              <span class="buyer-product-info">
+                <span class="benefit-thumb small">
+                  <img v-if="product.image" :src="product.image" :alt="product.name" />
+                  <Package v-else :size="18" />
+                </span>
+                <span>
+                  <strong>{{ product.name }}</strong>
+                  <small>分类：{{ product.categoryName || '-' }}</small>
+                </span>
+              </span>
+              <span>{{ product.faceValue ? formatMoney(product.faceValue) : '-' }}</span>
+              <strong class="cost-price">{{ formatMoney(product.salePrice) }}</strong>
+              <span>{{ formatMoney(product.terminalLimitPrice) }}</span>
+              <span class="product-rule-cell">
+                <small>账号规则：{{ productRuleTemplateLabel(product) }}</small>
+                <small>充值数量：{{ formatPurchaseQuantityRange(product) }}</small>
+              </span>
+              <span class="sale-status"><i></i>{{ product.status === 1 ? '正在销售' : '已下架' }}</span>
+              <span>{{ formatDateTime(product.updateTime || product.createTime) }}</span>
+              <button class="text-action edit" type="button">采购</button>
+            </div>
+            <div v-if="!pagedBuyerProducts.length && !buyerStoreLoading" class="empty-row">暂无商品数据</div>
+          </div>
+
+          <div class="buyer-pagination">
+            <span>共 {{ filteredBuyerProducts.length }} 条</span>
+            <div>
+              <button class="soft-action pager-button" type="button" :disabled="buyerProductPage <= 1" @click="buyerProductPage--">&lt;</button>
+              <button
+                v-for="pageNumber in buyerProductsPageCount"
+                :key="pageNumber"
+                class="soft-action pager-button"
+                :class="{ active: buyerProductPage === pageNumber }"
+                type="button"
+                v-show="pageNumber <= 3 || pageNumber === buyerProductsPageCount || Math.abs(pageNumber - buyerProductPage) <= 1"
+                @click="buyerProductPage = pageNumber"
+              >
+                {{ pageNumber }}
+              </button>
+              <button class="soft-action pager-button" type="button" :disabled="buyerProductPage >= buyerProductsPageCount" @click="buyerProductPage++">&gt;</button>
+              <select :value="buyerProductPageSize" @change="updateBuyerPageSize(Number(($event.target as HTMLSelectElement).value))">
+                <option :value="10">10 条/页</option>
+                <option :value="20">20 条/页</option>
+                <option :value="50">50 条/页</option>
+              </select>
+            </div>
+          </div>
+          <p v-if="buyerStoreLoading" class="toolbar-note">正在加载商品...</p>
+        </section>
+
+        <section v-else class="quick-section">
           <h2>常用功能</h2>
           <div class="quick-grid">
-            <button class="quick-card" type="button" aria-label="权益采购">
+            <button class="quick-card" type="button" aria-label="权益采购" @click="navigate('/purchase/benefits')">
               <span class="quick-icon"><HandCoins :size="40" :stroke-width="2.1" /></span>
               <span>权益采购</span>
             </button>
@@ -1894,7 +2262,7 @@ async function requestForm<T>(
           </div>
         </section>
 
-        <section class="buyer-grid">
+        <section v-if="buyerView === 'dashboard'" class="buyer-grid">
           <article class="buyer-chart-card">
             <h2>采购数据概览</h2>
             <div class="buyer-metrics">
@@ -2095,6 +2463,7 @@ async function requestForm<T>(
               <span>分类</span>
               <span>成本价</span>
               <span>售价</span>
+              <span>终端限价</span>
               <span>面值</span>
               <span>定价模板</span>
               <span>下单模板</span>
@@ -2115,6 +2484,7 @@ async function requestForm<T>(
               <span>{{ product.categoryName || '-' }}</span>
               <strong>{{ formatMoney(product.costPrice) }}</strong>
               <strong class="pricing-value">{{ formatMoney(product.salePrice) }}</strong>
+              <span>{{ formatMoney(product.terminalLimitPrice) }}</span>
               <span>{{ formatMoney(product.faceValue) }}</span>
               <span>{{ product.pricingTemplateName || '-' }}</span>
               <span>{{ product.orderTemplateName || '-' }}</span>
@@ -2583,6 +2953,11 @@ async function requestForm<T>(
           <input v-model="categoryForm.icon" placeholder="可填文字缩写、图片 URL 或上传图片" />
         </label>
 
+        <label>
+          <span>分类描述</span>
+          <textarea v-model="categoryForm.description" maxlength="255" placeholder="用于前台权益中心分类卡片展示"></textarea>
+        </label>
+
         <div class="icon-upload-field">
           <span class="category-icon preview">
             <img v-if="isImageIcon(categoryForm.icon)" :src="categoryForm.icon" alt="" />
@@ -2625,6 +3000,33 @@ async function requestForm<T>(
           </button>
         </footer>
       </form>
+    </div>
+
+    <div v-if="buyerCategoryModalOpen" class="modal-mask" role="dialog" aria-modal="true">
+      <section class="buyer-category-products-modal">
+        <header>
+          <div>
+            <h2>{{ viewingBuyerCategory?.name }}</h2>
+            <p>当前分类下共 {{ viewingCategoryProducts.length }} 个商品</p>
+          </div>
+          <button type="button" aria-label="关闭" @click="buyerCategoryModalOpen = false"><X :size="18" /></button>
+        </header>
+
+        <div class="buyer-modal-products">
+          <article v-for="product in viewingCategoryProducts" :key="product.id" class="buyer-modal-product">
+            <span class="benefit-thumb small">
+              <img v-if="product.image" :src="product.image" :alt="product.name" />
+              <Package v-else :size="18" />
+            </span>
+            <span>
+              <strong>{{ product.name }}</strong>
+              <small>{{ product.faceValue ? `面值 ${formatMoney(product.faceValue)}` : `售价 ${formatMoney(product.salePrice)}` }}</small>
+            </span>
+            <button class="buy-action inline" type="button">采购</button>
+          </article>
+          <div v-if="!viewingCategoryProducts.length" class="empty-row">当前分类暂无商品</div>
+        </div>
+      </section>
     </div>
 
     <div v-if="productModalOpen" class="modal-mask" role="dialog" aria-modal="true">
@@ -2702,6 +3104,11 @@ async function requestForm<T>(
           <span>售价预览</span>
           <strong>{{ productSalePricePreview == null ? '-' : formatMoney(productSalePricePreview) }}</strong>
         </div>
+
+        <label>
+          <span>终端限价</span>
+          <input v-model.number="productForm.terminalLimitPrice" min="0" step="0.01" placeholder="不填则前台展示 -" type="number" />
+        </label>
 
         <label>
           <span>商品图片</span>
@@ -3036,7 +3443,7 @@ async function requestForm<T>(
       <h1>零蓝校送</h1>
       <p class="front-copy">面向用户的商品浏览、权益采购和订单服务入口。</p>
       <div class="front-actions">
-        <button class="primary-action" type="button" @click="navigate('/home')">进入前台</button>
+        <button class="primary-action" type="button" @click="navigate('/index')">进入前台</button>
         <button class="soft-action" type="button" @click="navigate('/admin/index')">后台管理</button>
       </div>
     </section>

@@ -13,6 +13,7 @@ public class CategoryTreeResponse {
     private Long parentId;
     private String name;
     private String icon;
+    private String description;
     private Integer sort;
     private Integer status;
     private LocalDateTime createTime;
@@ -25,6 +26,7 @@ public class CategoryTreeResponse {
         response.setParentId(category.getParentId());
         response.setName(category.getName());
         response.setIcon(category.getIcon());
+        response.setDescription(category.getDescription());
         response.setSort(category.getSort());
         response.setStatus(category.getStatus());
         response.setCreateTime(category.getCreateTime());

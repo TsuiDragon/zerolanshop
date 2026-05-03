@@ -25,6 +25,9 @@ public class ProductCategory {
     @TableField("icon")
     private String icon;
 
+    @TableField("description")
+    private String description;
+
     @TableField("sort")
     private Integer sort;
 
