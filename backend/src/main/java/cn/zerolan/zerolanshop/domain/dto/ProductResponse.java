@@ -5,6 +5,7 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Data
 public class ProductResponse {
@@ -15,6 +16,7 @@ public class ProductResponse {
     private String name;
     private BigDecimal costPrice;
     private BigDecimal salePrice;
+    private String supplyCostStrategy;
     private Long pricingTemplateId;
     private String pricingTemplateName;
     private String image;
@@ -25,6 +27,7 @@ public class ProductResponse {
     private Integer maxPurchaseQuantity;
     private Integer sort;
     private Integer status;
+    private List<ProductSupplyBindingResponse> supplyBindings;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
 
@@ -32,7 +35,8 @@ public class ProductResponse {
             Product product,
             String categoryName,
             String pricingTemplateName,
-            String orderTemplateName
+            String orderTemplateName,
+            List<ProductSupplyBindingResponse> supplyBindings
     ) {
         ProductResponse response = new ProductResponse();
         response.setId(product.getId());
@@ -42,6 +46,7 @@ public class ProductResponse {
         response.setName(product.getName());
         response.setCostPrice(product.getCostPrice());
         response.setSalePrice(product.getSalePrice());
+        response.setSupplyCostStrategy(product.getSupplyCostStrategy());
         response.setPricingTemplateId(product.getPricingTemplateId());
         response.setPricingTemplateName(pricingTemplateName);
         response.setImage(product.getImage());
@@ -52,6 +57,7 @@ public class ProductResponse {
         response.setMaxPurchaseQuantity(product.getMaxPurchaseQuantity());
         response.setSort(product.getSort());
         response.setStatus(product.getStatus());
+        response.setSupplyBindings(supplyBindings);
         response.setCreateTime(product.getCreateTime());
         response.setUpdateTime(product.getUpdateTime());
         return response;

@@ -138,6 +138,7 @@ CREATE TABLE IF NOT EXISTS `product` (
     `name` VARCHAR(100) NOT NULL COMMENT '商品名称',
     `cost_price` DECIMAL(10,2) NOT NULL DEFAULT '0.00' COMMENT '成本价',
     `sale_price` DECIMAL(10,2) NOT NULL DEFAULT '0.00' COMMENT '售价',
+    `supply_cost_strategy` VARCHAR(20) NOT NULL DEFAULT 'LOWEST' COMMENT '渠道成本取价策略：LOWEST-最低价，HIGHEST-最高价',
     `pricing_template_id` BIGINT NOT NULL COMMENT '定价模板ID',
     `image` VARCHAR(500) DEFAULT NULL COMMENT '商品图片URL',
     `face_value` DECIMAL(10,2) DEFAULT NULL COMMENT '商品面值/原价，用作划线价',
@@ -156,3 +157,40 @@ CREATE TABLE IF NOT EXISTS `product` (
     KEY `idx_product_status` (`status`),
     KEY `idx_product_sort` (`sort`, `id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='商品表';
+
+ALTER TABLE `product`
+    ADD COLUMN IF NOT EXISTS `supply_cost_strategy` VARCHAR(20) NOT NULL DEFAULT 'LOWEST' COMMENT '渠道成本取价策略：LOWEST-最低价，HIGHEST-最高价' AFTER `sale_price`;
+-- Supply channel extension schema.
+CREATE TABLE IF NOT EXISTS `supply_channel` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '货源渠道ID',
+    `channel_type` VARCHAR(20) NOT NULL COMMENT '渠道类型：YOUKAYUN-优卡云',
+    `name` VARCHAR(50) NOT NULL COMMENT '渠道名称',
+    `api_url` VARCHAR(500) NOT NULL COMMENT '渠道接口地址',
+    `user_id` VARCHAR(100) NOT NULL COMMENT '用户编号',
+    `secret_key` VARCHAR(255) NOT NULL COMMENT '密钥',
+    `sort` INT NOT NULL DEFAULT 0 COMMENT '排序号，值越小越靠前',
+    `status` TINYINT NOT NULL DEFAULT 1 COMMENT '状态：0-禁用，1-启用',
+    `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_supply_channel_type` (`channel_type`),
+    KEY `idx_supply_channel_status` (`status`),
+    KEY `idx_supply_channel_sort` (`sort`, `id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='货源渠道表';
+
+CREATE TABLE IF NOT EXISTS `product_supply_binding` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '商品货源绑定ID',
+    `product_id` BIGINT NOT NULL COMMENT '本地商品ID',
+    `channel_id` BIGINT NOT NULL COMMENT '货源渠道ID',
+    `channel_product_id` VARCHAR(100) NOT NULL COMMENT '渠道商品ID',
+    `channel_product_name` VARCHAR(100) NOT NULL COMMENT '渠道商品名称',
+    `channel_cost_price` DECIMAL(10,2) NOT NULL DEFAULT '0.00' COMMENT '渠道成本价',
+    `sort` INT NOT NULL DEFAULT 0 COMMENT '排序号，值越小越靠前',
+    `status` TINYINT NOT NULL DEFAULT 1 COMMENT '状态：0-禁用，1-启用',
+    `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_product_supply_binding_product` (`product_id`, `sort`, `id`),
+    KEY `idx_product_supply_binding_channel` (`channel_id`),
+    KEY `idx_product_supply_binding_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='商品货源绑定表';

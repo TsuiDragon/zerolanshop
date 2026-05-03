@@ -32,6 +32,9 @@ public class Product {
     @TableField("sale_price")
     private BigDecimal salePrice;
 
+    @TableField("supply_cost_strategy")
+    private String supplyCostStrategy;
+
     @TableField("pricing_template_id")
     private Long pricingTemplateId;
 

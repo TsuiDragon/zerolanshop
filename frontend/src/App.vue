@@ -31,10 +31,11 @@ import {
 } from 'lucide-vue-next'
 
 type Page = 'admin' | 'adminAuth' | 'home' | 'userAuth'
-type AdminView = 'home' | 'product' | 'category' | 'pricingTemplate' | 'orderTemplate' | 'mediaAsset'
+type AdminView = 'home' | 'product' | 'category' | 'pricingTemplate' | 'orderTemplate' | 'mediaAsset' | 'supplyChannel'
 type AuthMode = 'login' | 'register'
 type PricingType = 'PERCENTAGE' | 'FIXED_AMOUNT'
 type ProductType = 'VIRTUAL' | 'CARD' | 'NORMAL'
+type SupplyCostStrategy = 'LOWEST' | 'HIGHEST'
 type OrderFieldType = 'PHONE' | 'QQ' | 'EMAIL' | 'ADDRESS' | 'TEXT'
 
 type ApiResult<T> = {
@@ -188,6 +189,7 @@ type ProductResponse = {
   name: string
   costPrice: number
   salePrice: number
+  supplyCostStrategy?: SupplyCostStrategy | null
   pricingTemplateId: number
   pricingTemplateName?: string | null
   image?: string | null
@@ -198,8 +200,69 @@ type ProductResponse = {
   maxPurchaseQuantity?: number | null
   sort: number
   status: number
+  supplyBindings?: ProductSupplyBindingResponse[]
   createTime?: string
   updateTime?: string
+}
+
+type SupplyChannelResponse = {
+  id: number
+  channelType: 'YOUKAYUN'
+  channelTypeName: string
+  name: string
+  apiUrl: string
+  userId: string
+  secretKey: string
+  sort: number
+  status: number
+  createTime?: string
+  updateTime?: string
+}
+
+type SupplyChannelBalanceResponse = {
+  channelId: number
+  channelType: string
+  balance?: number | string | null
+  message?: string
+}
+
+type SupplyChannelProductResponse = {
+  channelId: number
+  channelType: string
+  channelProductId: string
+  channelProductName?: string | null
+  channelCostPrice?: number | string | null
+  message?: string
+}
+
+type SupplyChannelForm = {
+  id?: number
+  channelType: 'YOUKAYUN'
+  name: string
+  apiUrl: string
+  userId: string
+  secretKey: string
+  sort: number
+  status: number
+}
+
+type SupplyChannelFilters = {
+  name: string
+  channelType: '' | 'YOUKAYUN'
+  status: '' | 0 | 1
+}
+
+type ProductSupplyBindingResponse = {
+  id?: number
+  productId?: number
+  channelId: number | ''
+  channelName?: string | null
+  channelType?: string | null
+  channelProductId: string
+  channelProductName: string
+  channelCostPrice: number
+  sort: number
+  status: number
 }
 
 type ProductForm = {
@@ -208,6 +271,7 @@ type ProductForm = {
   categoryId: number | ''
   name: string
   costPrice: number
+  supplyCostStrategy: SupplyCostStrategy
   pricingTemplateId: number | ''
   image: string
   faceValue: number | null
@@ -216,6 +280,7 @@ type ProductForm = {
   maxPurchaseQuantity: number | null
   sort: number
   status: number
+  supplyBindings: ProductSupplyBindingResponse[]
 }
 
 type ProductFilters = {
@@ -238,7 +303,8 @@ const page = computed<Page>(() => {
     currentPath.value === '/admin/goods/category' ||
     currentPath.value === '/admin/goods/pricing-template' ||
     currentPath.value === '/admin/goods/order-templates' ||
-    currentPath.value === '/admin/goods/media-assets'
+    currentPath.value === '/admin/goods/media-assets' ||
+    currentPath.value === '/admin/goods/supply-channels'
   ) return 'admin'
   if (currentPath.value === '/index') return 'home'
   return 'userAuth'
@@ -320,6 +386,8 @@ const savingProduct = ref(false)
 const productImageUploading = ref(false)
 const productModalOpen = ref(false)
 const productModalMode = ref<'create' | 'edit'>('create')
+const productModalTab = ref<'basic' | 'supply'>('basic')
+const syncingSupplyBindingIndex = ref<number | null>(null)
 const productFilters = reactive<ProductFilters>({
   name: '',
   productType: '',
@@ -331,12 +399,36 @@ const productForm = reactive<ProductForm>({
   categoryId: '',
   name: '',
   costPrice: 0,
+  supplyCostStrategy: 'LOWEST',
   pricingTemplateId: '',
   image: '',
   faceValue: null,
   orderTemplateId: '',
   minPurchaseQuantity: 1,
   maxPurchaseQuantity: null,
+  sort: 0,
+  status: 1,
+  supplyBindings: [],
+})
+const supplyChannels = ref<SupplyChannelResponse[]>([])
+const supplyChannelLoading = ref(false)
+const supplyChannelMessage = ref('')
+const supplyChannelBalances = reactive<Record<number, string>>({})
+const queryingSupplyChannelId = ref<number | null>(null)
+const savingSupplyChannel = ref(false)
+const supplyChannelModalOpen = ref(false)
+const supplyChannelModalMode = ref<'create' | 'edit'>('create')
+const supplyChannelFilters = reactive<SupplyChannelFilters>({
+  name: '',
+  channelType: '',
+  status: '',
+})
+const supplyChannelForm = reactive<SupplyChannelForm>({
+  channelType: 'YOUKAYUN',
+  name: '',
+  apiUrl: '',
+  userId: '',
+  secretKey: '',
   sort: 0,
   status: 1,
 })
@@ -364,7 +456,7 @@ const adminMenus = [
       { name: '定价模板', view: 'pricingTemplate' as AdminView },
       { name: '下单模板', view: 'orderTemplate' as AdminView },
       { name: '素材管理', view: 'mediaAsset' as AdminView },
-      { name: '货源渠道' },
+      { name: '货源渠道', view: 'supplyChannel' as AdminView },
     ],
   },
   { name: '用户', icon: Users },
@@ -547,6 +639,7 @@ function getAdminPath(view: AdminView) {
   if (view === 'pricingTemplate') return '/admin/goods/pricing-template'
   if (view === 'orderTemplate') return '/admin/goods/order-templates'
   if (view === 'mediaAsset') return '/admin/goods/media-assets'
+  if (view === 'supplyChannel') return '/admin/goods/supply-channels'
   return '/admin/index'
 }
 
@@ -556,6 +649,7 @@ function getAdminViewFromPath(path: string): AdminView {
   if (path === '/admin/goods/pricing-template') return 'pricingTemplate'
   if (path === '/admin/goods/order-templates') return 'orderTemplate'
   if (path === '/admin/goods/media-assets') return 'mediaAsset'
+  if (path === '/admin/goods/supply-channels') return 'supplyChannel'
   return 'home'
 }
 
@@ -577,10 +671,13 @@ function syncAdminViewFromPath() {
   if (adminView.value === 'mediaAsset' && mediaAssets.value.length === 0) {
     loadMediaAssets()
   }
+  if (adminView.value === 'supplyChannel' && supplyChannels.value.length === 0) {
+    loadSupplyChannels()
+  }
 }
 
 function isGoodsAdminView() {
-  return ['product', 'category', 'pricingTemplate', 'orderTemplate', 'mediaAsset'].includes(adminView.value)
+  return ['product', 'category', 'pricingTemplate', 'orderTemplate', 'mediaAsset', 'supplyChannel'].includes(adminView.value)
 }
 
 async function handleAdminSubmit() {
@@ -631,6 +728,7 @@ async function ensureProductOptions() {
   if (categoryTree.value.length === 0) await loadCategories()
   if (pricingTemplates.value.length === 0) await loadPricingTemplates()
   if (orderTemplates.value.length === 0) await loadOrderTemplates()
+  if (supplyChannels.value.length === 0) await loadSupplyChannels()
 }
 
 function normalizeTree(tree: CategoryTreeResponse[]) {
@@ -1240,6 +1338,7 @@ async function openCreateProductModal() {
     categoryId: flatCategoryOptions.value[0]?.id || '',
     name: '',
     costPrice: 0,
+    supplyCostStrategy: 'LOWEST',
     pricingTemplateId: pricingTemplates.value[0]?.id || '',
     image: '',
     faceValue: null,
@@ -1248,7 +1347,9 @@ async function openCreateProductModal() {
     maxPurchaseQuantity: null,
     sort: 0,
     status: 1,
+    supplyBindings: [],
   })
+  productModalTab.value = 'basic'
   productModalOpen.value = true
 }
 
@@ -1261,6 +1362,7 @@ async function openEditProductModal(product: ProductResponse) {
     categoryId: product.categoryId,
     name: product.name,
     costPrice: Number(product.costPrice),
+    supplyCostStrategy: product.supplyCostStrategy || 'LOWEST',
     pricingTemplateId: product.pricingTemplateId,
     image: product.image || '',
     faceValue: product.faceValue == null ? null : Number(product.faceValue),
@@ -1269,19 +1371,41 @@ async function openEditProductModal(product: ProductResponse) {
     maxPurchaseQuantity: product.maxPurchaseQuantity == null ? null : Number(product.maxPurchaseQuantity),
     sort: product.sort,
     status: product.status,
+    supplyBindings: (product.supplyBindings || []).map((binding) => ({
+      id: binding.id,
+      productId: binding.productId,
+      channelId: binding.channelId,
+      channelName: binding.channelName,
+      channelType: binding.channelType,
+      channelProductId: binding.channelProductId,
+      channelProductName: binding.channelProductName,
+      channelCostPrice: Number(binding.channelCostPrice),
+      sort: binding.sort,
+      status: binding.status,
+    })),
   })
+  productModalTab.value = 'basic'
   productModalOpen.value = true
 }
 
 async function saveProduct() {
   if (!productForm.name.trim() || productForm.categoryId === '' || productForm.pricingTemplateId === '' || productForm.orderTemplateId === '' || savingProduct.value) return
+  const invalidBinding = productForm.supplyBindings.find(
+    (binding) => binding.channelId !== '' && !binding.channelProductId.trim(),
+  )
+  if (invalidBinding) {
+    productMessage.value = '已选择货源渠道时，商品编号必填'
+    productModalTab.value = 'supply'
+    return
+  }
   savingProduct.value = true
   productMessage.value = ''
   const body = {
     productType: productForm.productType,
     categoryId: Number(productForm.categoryId),
     name: productForm.name.trim(),
-    costPrice: Number(productForm.costPrice),
+    costPrice: resolveProductCostPrice(),
+    supplyCostStrategy: productForm.supplyCostStrategy,
     pricingTemplateId: Number(productForm.pricingTemplateId),
     image: productForm.image.trim() || null,
     faceValue: productForm.faceValue == null ? null : Number(productForm.faceValue),
@@ -1290,6 +1414,16 @@ async function saveProduct() {
     maxPurchaseQuantity: productForm.maxPurchaseQuantity == null ? null : Number(productForm.maxPurchaseQuantity),
     sort: Number(productForm.sort) || 0,
     status: productForm.status,
+    supplyBindings: productForm.supplyBindings
+      .filter((binding) => binding.channelId !== '' && binding.channelProductId.trim() && binding.channelProductName.trim())
+      .map((binding, index) => ({
+        channelId: Number(binding.channelId),
+        channelProductId: binding.channelProductId.trim(),
+        channelProductName: binding.channelProductName.trim(),
+        channelCostPrice: Number(binding.channelCostPrice),
+        sort: Number(binding.sort) || index + 1,
+        status: binding.status,
+      })),
   }
 
   try {
@@ -1370,9 +1504,191 @@ function productTypeLabel(productType: ProductType) {
   return labels[productType]
 }
 
-function formatMoney(value?: number | null) {
+function formatMoney(value?: number | string | null) {
   if (value == null) return '-'
-  return `¥${Number(value).toFixed(2)}`
+  const amount = Number(value)
+  return Number.isFinite(amount) ? `¥${amount.toFixed(2)}` : String(value)
+}
+
+async function loadSupplyChannels() {
+  supplyChannelLoading.value = true
+  supplyChannelMessage.value = ''
+
+  try {
+    const params = new URLSearchParams()
+    if (supplyChannelFilters.name.trim()) params.set('name', supplyChannelFilters.name.trim())
+    if (supplyChannelFilters.channelType) params.set('channelType', supplyChannelFilters.channelType)
+    if (supplyChannelFilters.status !== '') params.set('status', String(supplyChannelFilters.status))
+    const query = params.toString()
+    const result = await requestJson<SupplyChannelResponse[]>(`/api/admin/supply-channels${query ? `?${query}` : ''}`)
+    supplyChannels.value = [...result.data].sort((a, b) => (a.sort || 0) - (b.sort || 0) || a.id - b.id)
+  } catch (error) {
+    supplyChannelMessage.value = error instanceof Error ? error.message : '货源渠道加载失败'
+  } finally {
+    supplyChannelLoading.value = false
+  }
+}
+
+function resetSupplyChannelFilters() {
+  Object.assign(supplyChannelFilters, { name: '', channelType: '', status: '' })
+  loadSupplyChannels()
+}
+
+function openCreateSupplyChannelModal() {
+  supplyChannelModalMode.value = 'create'
+  Object.assign(supplyChannelForm, {
+    id: undefined,
+    channelType: 'YOUKAYUN',
+    name: '',
+    apiUrl: '',
+    userId: '',
+    secretKey: '',
+    sort: 0,
+    status: 1,
+  })
+  supplyChannelModalOpen.value = true
+}
+
+function openEditSupplyChannelModal(channel: SupplyChannelResponse) {
+  supplyChannelModalMode.value = 'edit'
+  Object.assign(supplyChannelForm, {
+    id: channel.id,
+    channelType: channel.channelType,
+    name: channel.name,
+    apiUrl: channel.apiUrl,
+    userId: channel.userId,
+    secretKey: '',
+    sort: channel.sort,
+    status: channel.status,
+  })
+  supplyChannelModalOpen.value = true
+}
+
+async function saveSupplyChannel() {
+  if (!supplyChannelForm.name.trim() || !supplyChannelForm.apiUrl.trim() || !supplyChannelForm.userId.trim() || savingSupplyChannel.value) return
+  if (supplyChannelModalMode.value === 'create' && !supplyChannelForm.secretKey.trim()) return
+  savingSupplyChannel.value = true
+  supplyChannelMessage.value = ''
+  const body = {
+    channelType: supplyChannelForm.channelType,
+    name: supplyChannelForm.name.trim(),
+    apiUrl: supplyChannelForm.apiUrl.trim(),
+    userId: supplyChannelForm.userId.trim(),
+    secretKey: supplyChannelForm.secretKey.trim() || null,
+    sort: Number(supplyChannelForm.sort) || 0,
+    status: supplyChannelForm.status,
+  }
+
+  try {
+    if (supplyChannelModalMode.value === 'create') {
+      await requestJson<SupplyChannelResponse>('/api/admin/supply-channels', { method: 'POST', body })
+    } else {
+      await requestJson<SupplyChannelResponse>(`/api/admin/supply-channels/${supplyChannelForm.id}`, { method: 'PUT', body })
+    }
+    supplyChannelModalOpen.value = false
+    await loadSupplyChannels()
+  } catch (error) {
+    supplyChannelMessage.value = error instanceof Error ? error.message : '货源渠道保存失败'
+  } finally {
+    savingSupplyChannel.value = false
+  }
+}
+
+async function changeSupplyChannelStatus(channel: SupplyChannelResponse) {
+  const nextStatus = channel.status === 1 ? 0 : 1
+  channel.status = nextStatus
+  try {
+    await requestJson<SupplyChannelResponse>(`/api/admin/supply-channels/${channel.id}/status`, {
+      method: 'PATCH',
+      body: { status: nextStatus },
+    })
+  } catch (error) {
+    channel.status = nextStatus === 1 ? 0 : 1
+    supplyChannelMessage.value = error instanceof Error ? error.message : '货源渠道状态更新失败'
+  }
+}
+
+async function deleteSupplyChannel(channel: SupplyChannelResponse) {
+  if (!window.confirm(`确定删除货源渠道“${channel.name}”吗？`)) return
+  supplyChannelMessage.value = ''
+  try {
+    await requestJson<void>(`/api/admin/supply-channels/${channel.id}`, { method: 'DELETE' })
+    await loadSupplyChannels()
+  } catch (error) {
+    supplyChannelMessage.value = error instanceof Error ? error.message : '货源渠道删除失败'
+  }
+}
+
+async function querySupplyChannelBalance(channel: SupplyChannelResponse) {
+  if (queryingSupplyChannelId.value === channel.id) return
+  queryingSupplyChannelId.value = channel.id
+  supplyChannelMessage.value = ''
+
+  try {
+    const result = await requestJson<SupplyChannelBalanceResponse>(`/api/admin/supply-channels/${channel.id}/balance`)
+    supplyChannelBalances[channel.id] = result.data.balance == null ? '未返回余额' : formatMoney(result.data.balance)
+  } catch (error) {
+    supplyChannelBalances[channel.id] = '查询失败'
+    supplyChannelMessage.value = error instanceof Error ? error.message : '渠道余额查询失败'
+  } finally {
+    queryingSupplyChannelId.value = null
+  }
+}
+
+function supplyChannelTypeLabel(channelType: string) {
+  return channelType === 'YOUKAYUN' ? '优卡云' : channelType
+}
+
+function addProductSupplyBinding() {
+  productForm.supplyBindings.push({
+    channelId: supplyChannels.value[0]?.id || '',
+    channelProductId: '',
+    channelProductName: '',
+    channelCostPrice: 0,
+    sort: productForm.supplyBindings.length + 1,
+    status: 1,
+  })
+}
+
+function removeProductSupplyBinding(index: number) {
+  productForm.supplyBindings.splice(index, 1)
+  productForm.supplyBindings.forEach((binding, bindingIndex) => {
+    binding.sort = bindingIndex + 1
+  })
+}
+
+function resolveProductCostPrice() {
+  const enabledCosts = productForm.supplyBindings
+    .filter((binding) => binding.status === 1 && binding.channelId !== '')
+    .map((binding) => Number(binding.channelCostPrice))
+    .filter((cost) => Number.isFinite(cost) && cost >= 0)
+  if (!enabledCosts.length) return Number(productForm.costPrice)
+  return productForm.supplyCostStrategy === 'HIGHEST' ? Math.max(...enabledCosts) : Math.min(...enabledCosts)
+}
+
+async function syncProductSupplyBinding(binding: ProductSupplyBindingResponse, index: number) {
+  if (binding.channelId === '' || !binding.channelProductId.trim() || syncingSupplyBindingIndex.value === index) {
+    productMessage.value = '请选择渠道并填写商品编号后再同步'
+    productModalTab.value = 'supply'
+    return
+  }
+  syncingSupplyBindingIndex.value = index
+  productMessage.value = ''
+
+  try {
+    const result = await requestJson<SupplyChannelProductResponse>(
+      `/api/admin/supply-channels/${binding.channelId}/products/${encodeURIComponent(binding.channelProductId.trim())}`,
+    )
+    binding.channelProductName = result.data.channelProductName || binding.channelProductName
+    if (result.data.channelCostPrice != null) {
+      binding.channelCostPrice = Number(result.data.channelCostPrice)
+    }
+    productMessage.value = '货源渠道商品同步成功'
+  } catch (error) {
+    productMessage.value = error instanceof Error ? error.message : '货源渠道商品同步失败'
+  } finally {
+    syncingSupplyBindingIndex.value = null
+  }
 }
 
 function isImageIcon(icon?: string | null) {
@@ -2080,6 +2396,97 @@ async function requestForm<T>(
         </section>
       </div>
 
+      <div v-else-if="adminView === 'supplyChannel'" class="admin-content">
+        <section class="page-heading">
+          <h2>货源渠道</h2>
+          <p>维护第三方货源渠道账号和接口配置</p>
+        </section>
+
+        <section class="category-panel">
+          <div class="category-toolbar pricing-toolbar">
+            <button class="primary-action" type="button" @click="openCreateSupplyChannelModal()">
+              <Plus :size="18" />
+              <span>添加渠道</span>
+            </button>
+            <label>
+              <span>渠道名称</span>
+              <input v-model="supplyChannelFilters.name" placeholder="输入名称筛选" type="text" @keyup.enter="loadSupplyChannels" />
+            </label>
+            <label>
+              <span>渠道类型</span>
+              <select v-model="supplyChannelFilters.channelType">
+                <option value="">全部</option>
+                <option value="YOUKAYUN">优卡云</option>
+              </select>
+            </label>
+            <label>
+              <span>状态</span>
+              <select v-model="supplyChannelFilters.status">
+                <option value="">全部</option>
+                <option :value="1">启用</option>
+                <option :value="0">禁用</option>
+              </select>
+            </label>
+            <button class="soft-action" type="button" @click="loadSupplyChannels">筛选</button>
+            <button class="soft-action" type="button" @click="resetSupplyChannelFilters">重置</button>
+            <p v-if="supplyChannelLoading" class="toolbar-note">正在加载渠道...</p>
+          </div>
+
+          <p v-if="supplyChannelMessage" class="category-message">{{ supplyChannelMessage }}</p>
+
+          <div class="category-table" role="table" aria-label="货源渠道列表">
+            <div class="supply-channel-row table-head" role="row">
+              <span>编号</span>
+              <span>渠道名称</span>
+              <span>类型</span>
+              <span>接口地址</span>
+              <span>用户编号</span>
+              <span>密钥</span>
+              <span>余额</span>
+              <span>状态</span>
+              <span>操作</span>
+            </div>
+
+            <div v-for="channel in supplyChannels" :key="channel.id" class="supply-channel-row" role="row">
+              <strong>{{ channel.id }}</strong>
+              <span class="template-name">
+                <strong>{{ channel.name }}</strong>
+                <small>排序 {{ channel.sort }}</small>
+              </span>
+              <span>{{ supplyChannelTypeLabel(channel.channelType) }}</span>
+              <span class="table-url">{{ channel.apiUrl }}</span>
+              <span>{{ channel.userId }}</span>
+              <span>{{ channel.secretKey }}</span>
+              <span class="balance-cell">
+                <strong>{{ supplyChannelBalances[channel.id] || '-' }}</strong>
+                <button class="text-action edit" type="button" :disabled="queryingSupplyChannelId === channel.id" @click="querySupplyChannelBalance(channel)">
+                  {{ queryingSupplyChannelId === channel.id ? '查询中...' : '查余额' }}
+                </button>
+              </span>
+              <button class="switch" :class="{ on: channel.status === 1 }" type="button" @click="changeSupplyChannelStatus(channel)">
+                <span></span>
+              </button>
+              <span class="row-actions">
+                <button class="text-action edit" type="button" @click="openEditSupplyChannelModal(channel)">
+                  <Edit3 :size="14" />
+                  编辑
+                </button>
+                <button class="text-action danger" type="button" @click="deleteSupplyChannel(channel)">
+                  <Trash2 :size="14" />
+                  删除
+                </button>
+              </span>
+            </div>
+
+            <div v-if="!supplyChannels.length && !supplyChannelLoading" class="empty-row">暂无货源渠道数据</div>
+          </div>
+
+          <footer class="category-footer">
+            <span>共 {{ supplyChannels.length }} 条记录</span>
+          </footer>
+        </section>
+      </div>
+
       <div v-else-if="adminView === 'mediaAsset'" class="admin-content">
         <section class="page-heading">
           <h2>素材管理</h2>
@@ -2227,6 +2634,17 @@ async function requestForm<T>(
           <button type="button" aria-label="关闭" @click="productModalOpen = false"><X :size="18" /></button>
         </header>
 
+        <nav class="product-modal-tabs" aria-label="商品编辑切换">
+          <button class="tab-action" :class="{ active: productModalTab === 'basic' }" type="button" @click="productModalTab = 'basic'">
+            基本信息
+          </button>
+          <button class="tab-action" :class="{ active: productModalTab === 'supply' }" type="button" @click="productModalTab = 'supply'">
+            货源渠道
+          </button>
+        </nav>
+
+        <div class="product-modal-body">
+        <section v-show="productModalTab === 'basic'" class="product-tab-panel">
         <label>
           <span>商品名称</span>
           <input v-model="productForm.name" maxlength="100" placeholder="请输入商品名称" type="text" />
@@ -2332,6 +2750,69 @@ async function requestForm<T>(
           </label>
         </div>
 
+        </section>
+
+        <section v-show="productModalTab === 'supply'" class="supply-binding-editor product-tab-panel">
+          <header>
+            <h3>货源渠道商品</h3>
+            <button class="add-binding-action" type="button" @click="addProductSupplyBinding">
+              <Plus :size="16" />
+              <span>添加绑定</span>
+            </button>
+            <label class="supply-cost-strategy">
+              <span>渠道成本取价</span>
+              <select v-model="productForm.supplyCostStrategy">
+                <option value="LOWEST">使用最低价渠道</option>
+                <option value="HIGHEST">使用最高价渠道</option>
+              </select>
+            </label>
+          </header>
+
+          <div v-for="(binding, index) in productForm.supplyBindings" :key="index" class="supply-binding-row">
+            <label class="binding-field">
+              <span>渠道名称</span>
+              <select v-model="binding.channelId">
+                <option value="" disabled>选择渠道</option>
+                <option v-for="channel in supplyChannels" :key="channel.id" :value="channel.id">
+                  {{ channel.name }} · {{ supplyChannelTypeLabel(channel.channelType) }}
+                </option>
+              </select>
+            </label>
+            <label class="binding-field required">
+              <span>商品编号</span>
+              <input v-model="binding.channelProductId" required placeholder="必填" />
+            </label>
+            <label class="binding-field">
+              <span>商品名称</span>
+              <input v-model="binding.channelProductName" placeholder="同步后填充" />
+            </label>
+            <label class="binding-field">
+              <span>渠道成本</span>
+              <input v-model.number="binding.channelCostPrice" min="0" step="0.01" type="number" placeholder="同步后填充" />
+            </label>
+            <label class="binding-field">
+              <span>状态</span>
+              <select v-model.number="binding.status">
+                <option :value="1">启用</option>
+                <option :value="0">禁用</option>
+              </select>
+            </label>
+            <label class="binding-field">
+              <span>排序</span>
+              <input v-model.number="binding.sort" min="0" type="number" />
+            </label>
+            <button class="soft-action sync-binding-action" type="button" :disabled="syncingSupplyBindingIndex === index || binding.channelId === '' || !binding.channelProductId.trim()" @click="syncProductSupplyBinding(binding, index)">
+              {{ syncingSupplyBindingIndex === index ? '同步中...' : '同步' }}
+            </button>
+            <button class="text-action danger binding-delete-action" type="button" @click="removeProductSupplyBinding(index)">
+              <Trash2 :size="14" />
+            </button>
+          </div>
+
+          <p v-if="!productForm.supplyBindings.length" class="field-note">未绑定货源渠道商品时，后续订单不会自动向渠道发单。</p>
+        </section>
+        </div>
+
         <footer>
           <button class="soft-action" type="button" @click="productModalOpen = false">取消</button>
           <button class="primary-action" type="submit" :disabled="savingProduct || !productForm.name.trim()">
@@ -2403,6 +2884,63 @@ async function requestForm<T>(
           <button class="soft-action" type="button" @click="orderTemplateModalOpen = false">取消</button>
           <button class="primary-action" type="submit" :disabled="savingOrderTemplate || !orderTemplateForm.name.trim()">
             {{ savingOrderTemplate ? '保存中...' : '保存' }}
+          </button>
+        </footer>
+      </form>
+    </div>
+
+    <div v-if="supplyChannelModalOpen" class="modal-mask" role="dialog" aria-modal="true">
+      <form class="category-modal supply-channel-modal" @submit.prevent="saveSupplyChannel">
+        <header>
+          <h2>{{ supplyChannelModalMode === 'create' ? '添加货源渠道' : '编辑货源渠道' }}</h2>
+          <button type="button" aria-label="关闭" @click="supplyChannelModalOpen = false"><X :size="18" /></button>
+        </header>
+
+        <label>
+          <span>渠道类型</span>
+          <select v-model="supplyChannelForm.channelType">
+            <option value="YOUKAYUN">优卡云</option>
+          </select>
+        </label>
+
+        <label>
+          <span>渠道名称</span>
+          <input v-model="supplyChannelForm.name" maxlength="50" placeholder="请输入后台可识别的渠道名称" type="text" />
+        </label>
+
+        <label>
+          <span>接口地址</span>
+          <input v-model="supplyChannelForm.apiUrl" maxlength="500" placeholder="例如：https://api.example.com" type="text" />
+        </label>
+
+        <label>
+          <span>用户编号</span>
+          <input v-model="supplyChannelForm.userId" maxlength="100" placeholder="请输入用户编号" type="text" />
+        </label>
+
+        <label>
+          <span>密钥</span>
+          <input v-model="supplyChannelForm.secretKey" maxlength="255" :placeholder="supplyChannelModalMode === 'edit' ? '留空表示不修改密钥' : '请输入渠道密钥'" type="password" />
+        </label>
+
+        <div class="form-grid two">
+          <label>
+            <span>排序号</span>
+            <input v-model.number="supplyChannelForm.sort" min="0" type="number" />
+          </label>
+          <label>
+            <span>状态</span>
+            <select v-model.number="supplyChannelForm.status">
+              <option :value="1">启用</option>
+              <option :value="0">禁用</option>
+            </select>
+          </label>
+        </div>
+
+        <footer>
+          <button class="soft-action" type="button" @click="supplyChannelModalOpen = false">取消</button>
+          <button class="primary-action" type="submit" :disabled="savingSupplyChannel || !supplyChannelForm.name.trim()">
+            {{ savingSupplyChannel ? '保存中...' : '保存' }}
           </button>
         </footer>
       </form>
