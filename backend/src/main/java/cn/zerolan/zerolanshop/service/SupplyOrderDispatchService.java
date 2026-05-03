@@ -59,7 +59,7 @@ public class SupplyOrderDispatchService {
     private ProductSupplyBinding selectBinding(Long productId, Long bindingId) {
         if (bindingId != null) {
             ProductSupplyBinding binding = productSupplyBindingMapper.selectById(bindingId);
-            if (binding == null || !productId.equals(binding.getProductId()) || binding.getStatus() == null || binding.getStatus() != STATUS_ENABLED) {
+            if (binding == null || !productId.equals(binding.getProductId()) || binding.getStatus() == null || binding.getStatus() != STATUS_ENABLED || !Boolean.TRUE.equals(binding.getActive())) {
                 return null;
             }
             return binding;
@@ -67,6 +67,7 @@ public class SupplyOrderDispatchService {
         QueryWrapper<ProductSupplyBinding> wrapper = new QueryWrapper<>();
         wrapper.eq("product_id", productId)
                 .eq("status", STATUS_ENABLED)
+                .eq("active", true)
                 .orderByAsc("sort", "id")
                 .last("LIMIT 1");
         return productSupplyBindingMapper.selectOne(wrapper);

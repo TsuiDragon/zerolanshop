@@ -32,6 +32,9 @@ public class ProductSupplyBinding {
     @TableField("channel_cost_price")
     private BigDecimal channelCostPrice;
 
+    @TableField("active")
+    private Boolean active;
+
     @TableField("sort")
     private Integer sort;
 

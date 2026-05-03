@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, type Component } from 'vue'
 import {
   BarChart3,
   Banknote,
@@ -32,8 +32,8 @@ import {
 } from 'lucide-vue-next'
 
 type Page = 'admin' | 'adminAuth' | 'home' | 'userAuth'
-type AdminView = 'home' | 'product' | 'category' | 'pricingTemplate' | 'orderTemplate' | 'mediaAsset' | 'supplyChannel'
-type BuyerView = 'dashboard' | 'benefits' | 'products'
+type AdminView = 'home' | 'product' | 'category' | 'pricingTemplate' | 'orderTemplate' | 'mediaAsset' | 'supplyChannel' | 'user' | 'order'
+type BuyerView = 'dashboard' | 'benefits' | 'products' | 'orders'
 type AuthMode = 'login' | 'register'
 type PricingType = 'PERCENTAGE' | 'FIXED_AMOUNT'
 type ProductType = 'VIRTUAL' | 'CARD' | 'NORMAL'
@@ -58,6 +58,32 @@ type LoginResponse = {
   token: string
   userId: number
   username: string
+}
+
+type UserProfileResponse = {
+  userId: number
+  username: string
+  balance: number
+}
+
+type AdminUserResponse = {
+  id: number
+  username: string
+  email?: string | null
+  phone?: string | null
+  nickname?: string | null
+  avatar?: string | null
+  balance: number
+  status: number
+  registerIp?: string | null
+  registerTime?: string
+  lastLoginTime?: string
+  updateTime?: string
+}
+
+type AdminUserFilters = {
+  keyword: string
+  status: '' | 0 | 1
 }
 
 type ImageUploadResponse = {
@@ -266,8 +292,51 @@ type ProductSupplyBindingResponse = {
   channelProductId: string
   channelProductName: string
   channelCostPrice: number
+  active?: boolean
   sort: number
   status: number
+}
+
+type VirtualOrderStatus = 'PENDING' | 'PROCESSING' | 'SUCCESS' | 'REFUNDED' | 'EXCEPTION'
+
+type VirtualOrderResponse = {
+  id: number
+  orderNo: string
+  userId: number
+  username: string
+  productId: number
+  productName: string
+  productSnapshot?: string | null
+  quantity: number
+  rechargeAccount: string
+  orderAmount: number
+  paymentMethod: string
+  sourceIp?: string | null
+  status: VirtualOrderStatus
+  channelId?: number | null
+  channelName?: string | null
+  channelType?: string | null
+  channelOrderNo?: string | null
+  exceptionMessage?: string | null
+  createdAt?: string
+  processedAt?: string | null
+  processingDurationSeconds?: number | null
+  updateTime?: string
+}
+
+type OrderFilters = {
+  orderNo: string
+  status: '' | VirtualOrderStatus
+  productName: string
+  rechargeAccount: string
+  paymentMethod: '' | 'BALANCE'
+}
+
+type BuyerOrderFilters = OrderFilters & {
+  productId: string
+  channelOrderNo: string
+  startTime: string
+  endTime: string
 }
 
 type ProductForm = {
@@ -297,30 +366,44 @@ type ProductFilters = {
 }
 
 type BuyerProductStatus = '' | 0 | 1
+type AdminMenu = {
+  name: string
+  icon: Component
+  view?: AdminView
+  expanded?: boolean
+  children?: { name: string; view: AdminView }[]
+}
 
 const currentPath = ref(window.location.pathname)
 const adminView = ref<AdminView>(getAdminViewFromPath(currentPath.value))
 const buyerView = ref<BuyerView>('benefits')
 
 const page = computed<Page>(() => {
-  if (currentPath.value === '/login') return 'userAuth'
-  if (currentPath.value === '/admin/login') return 'adminAuth'
+  const path = normalizePath(currentPath.value)
+  if (path === '/login') return 'userAuth'
+  if (path === '/admin/login') return 'adminAuth'
   if (
-    currentPath.value === '/admin' ||
-    currentPath.value === '/admin/index' ||
-    currentPath.value === '/admin/goods/products' ||
-    currentPath.value === '/admin/goods/category' ||
-    currentPath.value === '/admin/goods/pricing-template' ||
-    currentPath.value === '/admin/goods/order-templates' ||
-    currentPath.value === '/admin/goods/media-assets' ||
-    currentPath.value === '/admin/goods/supply-channels'
+    path === '/admin' ||
+    path === '/admin/index' ||
+    path === '/admin/goods/products' ||
+    path === '/admin/goods/category' ||
+    path === '/admin/goods/pricing-template' ||
+    path === '/admin/goods/order-templates' ||
+    path === '/admin/goods/media-assets' ||
+    path === '/admin/goods/supply-channels' ||
+    path === '/admin/users' ||
+    path === '/admin/orders'
   ) return 'admin'
   if (
-    currentPath.value === '/home' ||
-    currentPath.value === '/index' ||
-    currentPath.value === '/purchase' ||
-    currentPath.value === '/purchase/benefits' ||
-    currentPath.value === '/purchase/products'
+    path === '/home' ||
+    path === '/index' ||
+    path === '/purchase' ||
+    path === '/purchase/benefits' ||
+    path === '/purchase/products' ||
+    path === '/purchase/orders' ||
+    path === '/purchase/order' ||
+    path === '/orders' ||
+    path === '/order'
   ) return 'home'
   return 'userAuth'
 })
@@ -471,10 +554,53 @@ const buyerProductPage = ref(1)
 const buyerProductPageSize = ref(10)
 const buyerCategoryModalOpen = ref(false)
 const viewingBuyerCategory = ref<CategoryResponse | CategoryTreeResponse | null>(null)
+const buyerCategoryModalPosition = reactive({ x: 0, y: 0 })
+const buyerCategoryModalDragStart = reactive({ pointerX: 0, pointerY: 0, x: 0, y: 0 })
+const buyerCategoryModalDragging = ref(false)
 const buyerCategoryPickerOpen = ref(false)
 const activeBuyerParentCategoryId = ref<number | null>(null)
+const currentBalance = ref(0)
+const purchaseModalOpen = ref(false)
+const purchasingProduct = ref<ProductResponse | null>(null)
+const purchaseRechargeAccount = ref('')
+const purchaseQuantity = ref(1)
+const purchasePaymentMethod = ref<'BALANCE'>('BALANCE')
+const purchaseConfirmed = ref(false)
+const purchaseSubmitting = ref(false)
+const purchaseMessage = ref('')
+const buyerOrders = ref<VirtualOrderResponse[]>([])
+const buyerOrderLoading = ref(false)
+const buyerOrderMessage = ref('')
+const buyerOrderFilters = reactive<BuyerOrderFilters>({
+  rechargeAccount: '',
+  productName: '',
+  productId: '',
+  orderNo: '',
+  channelOrderNo: '',
+  status: '',
+  paymentMethod: '',
+  startTime: '',
+  endTime: '',
+})
+const adminOrders = ref<VirtualOrderResponse[]>([])
+const adminOrderLoading = ref(false)
+const adminOrderMessage = ref('')
+const adminOrderFilters = reactive<OrderFilters>({
+  orderNo: '',
+  status: '',
+  productName: '',
+  rechargeAccount: '',
+  paymentMethod: '',
+})
+const adminUsers = ref<AdminUserResponse[]>([])
+const adminUserLoading = ref(false)
+const adminUserMessage = ref('')
+const adminUserFilters = reactive<AdminUserFilters>({
+  keyword: '',
+  status: '',
+})
 
-const adminMenus = [
+const adminMenus = reactive<AdminMenu[]>([
   { name: '首页', icon: Home, view: 'home' as AdminView },
   {
     name: '商品',
@@ -489,12 +615,12 @@ const adminMenus = [
       { name: '货源渠道', view: 'supplyChannel' as AdminView },
     ],
   },
-  { name: '用户', icon: Users },
-  { name: '订单', icon: ShoppingCart },
+  { name: '用户', icon: Users, view: 'user' as AdminView },
+  { name: '订单', icon: ShoppingCart, view: 'order' as AdminView },
   { name: '数据', icon: BarChart3 },
   { name: '运营', icon: Megaphone },
   { name: '设置', icon: Settings },
-]
+])
 
 const todayStats = [
   { label: '今日销售额', value: '￥58,790', icon: DollarSign, tone: 'blue' },
@@ -621,6 +747,25 @@ const buyerCategoryPickerLabel = computed(() => {
   }
   return '请选择商品分类'
 })
+const purchaseTotalAmount = computed(() =>
+  purchasingProduct.value ? Number(purchasingProduct.value.salePrice) * Number(purchaseQuantity.value || 0) * purchaseAccounts.value.length : 0,
+)
+const purchaseAccounts = computed(() =>
+  purchaseRechargeAccount.value
+    .split(/\r?\n/)
+    .map((account) => account.trim())
+    .filter(Boolean),
+)
+const canSubmitPurchase = computed(() =>
+  Boolean(
+    purchasingProduct.value &&
+      purchaseAccounts.value.length > 0 &&
+      purchaseConfirmed.value &&
+      purchaseQuantity.value >= (purchasingProduct.value.minPurchaseQuantity || 1) &&
+      (purchasingProduct.value.maxPurchaseQuantity == null || purchaseQuantity.value <= purchasingProduct.value.maxPurchaseQuantity) &&
+      !purchaseSubmitting.value,
+  ),
+)
 
 onMounted(() => {
   normalizeRoute()
@@ -628,14 +773,30 @@ onMounted(() => {
   syncBuyerView()
 })
 
+function normalizePath(path: string) {
+  if (path.length > 1 && path.endsWith('/')) {
+    return path.slice(0, -1)
+  }
+  return path
+}
+
 function normalizeRoute() {
-  if (currentPath.value === '/') {
+  const path = normalizePath(currentPath.value)
+  if (path !== currentPath.value) {
+    window.history.replaceState({}, '', path)
+    currentPath.value = path
+  }
+  if (path === '/') {
     window.history.replaceState({}, '', '/login')
     currentPath.value = '/login'
   }
-  if (currentPath.value === '/admin') {
+  if (path === '/admin') {
     window.history.replaceState({}, '', '/admin/login')
     currentPath.value = '/admin/login'
+  }
+  if (path === '/orders' || path === '/order' || path === '/purchase/order') {
+    window.history.replaceState({}, '', '/purchase/orders')
+    currentPath.value = '/purchase/orders'
   }
 }
 
@@ -712,6 +873,20 @@ function switchAdminView(view: AdminView) {
   navigate(getAdminPath(view))
 }
 
+function handleAdminMenuClick(menu: AdminMenu) {
+  if (menu.children?.length) {
+    menu.expanded = !menu.expanded
+    return
+  }
+  if (menu.view) {
+    switchAdminView(menu.view)
+  }
+}
+
+function isAdminMenuActive(menu: AdminMenu) {
+  return menu.view === adminView.value || Boolean(menu.children?.some((child) => child.view === adminView.value))
+}
+
 function getAdminPath(view: AdminView) {
   if (view === 'product') return '/admin/goods/products'
   if (view === 'category') return '/admin/goods/category'
@@ -719,6 +894,8 @@ function getAdminPath(view: AdminView) {
   if (view === 'orderTemplate') return '/admin/goods/order-templates'
   if (view === 'mediaAsset') return '/admin/goods/media-assets'
   if (view === 'supplyChannel') return '/admin/goods/supply-channels'
+  if (view === 'user') return '/admin/users'
+  if (view === 'order') return '/admin/orders'
   return '/admin/index'
 }
 
@@ -729,6 +906,8 @@ function getAdminViewFromPath(path: string): AdminView {
   if (path === '/admin/goods/order-templates') return 'orderTemplate'
   if (path === '/admin/goods/media-assets') return 'mediaAsset'
   if (path === '/admin/goods/supply-channels') return 'supplyChannel'
+  if (path === '/admin/users') return 'user'
+  if (path === '/admin/orders') return 'order'
   return 'home'
 }
 
@@ -753,6 +932,12 @@ function syncAdminViewFromPath() {
   if (adminView.value === 'supplyChannel' && supplyChannels.value.length === 0) {
     loadSupplyChannels()
   }
+  if (adminView.value === 'user' && adminUsers.value.length === 0) {
+    loadAdminUsers()
+  }
+  if (adminView.value === 'order' && adminOrders.value.length === 0) {
+    loadAdminOrders()
+  }
 }
 
 function isGoodsAdminView() {
@@ -765,6 +950,12 @@ function syncBuyerView() {
   if (!buyerProducts.value.length && !buyerStoreLoading.value) {
     loadBuyerStoreData()
   }
+  if (buyerView.value === 'orders' && !buyerOrders.value.length && !buyerOrderLoading.value) {
+    loadBuyerOrders()
+  }
+  if (currentBalance.value === 0) {
+    loadCurrentUserProfile()
+  }
 }
 
 function switchBuyerView(view: BuyerView) {
@@ -774,12 +965,15 @@ function switchBuyerView(view: BuyerView) {
 function getBuyerPath(view: BuyerView) {
   if (view === 'benefits') return '/purchase/benefits'
   if (view === 'products') return '/purchase/products'
+  if (view === 'orders') return '/purchase/orders'
   return '/index'
 }
 
 function getBuyerViewFromPath(path: string): BuyerView {
-  if (path === '/purchase' || path === '/purchase/benefits') return 'benefits'
-  if (path === '/purchase/products') return 'products'
+  const normalized = normalizePath(path)
+  if (normalized === '/purchase' || normalized === '/purchase/benefits') return 'benefits'
+  if (normalized === '/purchase/products') return 'products'
+  if (normalized === '/purchase/orders' || normalized === '/purchase/order' || normalized === '/orders' || normalized === '/order') return 'orders'
   return 'dashboard'
 }
 
@@ -845,7 +1039,46 @@ function productRuleTemplateLabel(product: ProductResponse) {
 
 function openBuyerCategoryProducts(category: CategoryResponse | CategoryTreeResponse) {
   viewingBuyerCategory.value = category
+  buyerCategoryModalPosition.x = 0
+  buyerCategoryModalPosition.y = 0
   buyerCategoryModalOpen.value = true
+}
+
+function clampBuyerCategoryModalPosition(x: number, y: number) {
+  const maxX = Math.max(120, window.innerWidth / 2 - 180)
+  const maxY = Math.max(80, window.innerHeight / 2 - 110)
+  return {
+    x: Math.min(maxX, Math.max(-maxX, x)),
+    y: Math.min(maxY, Math.max(-maxY, y)),
+  }
+}
+
+function dragBuyerCategoryModal(event: PointerEvent) {
+  if (!buyerCategoryModalDragging.value) return
+  const next = clampBuyerCategoryModalPosition(
+    buyerCategoryModalDragStart.x + event.clientX - buyerCategoryModalDragStart.pointerX,
+    buyerCategoryModalDragStart.y + event.clientY - buyerCategoryModalDragStart.pointerY,
+  )
+  buyerCategoryModalPosition.x = next.x
+  buyerCategoryModalPosition.y = next.y
+}
+
+function stopBuyerCategoryModalDrag() {
+  buyerCategoryModalDragging.value = false
+  window.removeEventListener('pointermove', dragBuyerCategoryModal)
+  window.removeEventListener('pointerup', stopBuyerCategoryModalDrag)
+}
+
+function startBuyerCategoryModalDrag(event: PointerEvent) {
+  if (event.button !== 0) return
+  buyerCategoryModalDragging.value = true
+  buyerCategoryModalDragStart.pointerX = event.clientX
+  buyerCategoryModalDragStart.pointerY = event.clientY
+  buyerCategoryModalDragStart.x = buyerCategoryModalPosition.x
+  buyerCategoryModalDragStart.y = buyerCategoryModalPosition.y
+  window.addEventListener('pointermove', dragBuyerCategoryModal)
+  window.addEventListener('pointerup', stopBuyerCategoryModalDrag)
+  event.preventDefault()
 }
 
 function productsInBuyerCategory(category: CategoryResponse | CategoryTreeResponse) {
@@ -855,6 +1088,226 @@ function productsInBuyerCategory(category: CategoryResponse | CategoryTreeRespon
 
 function buyerCategoryProductCount(category: CategoryResponse | CategoryTreeResponse) {
   return productsInBuyerCategory(category).length
+}
+
+async function loadCurrentUserProfile() {
+  try {
+    const result = await requestUserJson<UserProfileResponse>('/api/users/me')
+    currentBalance.value = Number(result.data.balance || 0)
+    currentUsername.value = result.data.username || currentUsername.value
+  } catch {
+    currentBalance.value = 0
+  }
+}
+
+function openPurchaseModal(product: ProductResponse) {
+  purchasingProduct.value = product
+  purchaseQuantity.value = product.minPurchaseQuantity || 1
+  purchaseRechargeAccount.value = ''
+  purchasePaymentMethod.value = 'BALANCE'
+  purchaseConfirmed.value = false
+  purchaseMessage.value = ''
+  purchaseModalOpen.value = true
+  loadCurrentUserProfile()
+}
+
+function normalizePurchaseQuantity() {
+  if (!purchasingProduct.value) return
+  const minQuantity = purchasingProduct.value.minPurchaseQuantity || 1
+  const maxQuantity = purchasingProduct.value.maxPurchaseQuantity || minQuantity
+  const quantity = Number(purchaseQuantity.value)
+  if (!Number.isFinite(quantity) || quantity < minQuantity) {
+    purchaseQuantity.value = minQuantity
+    return
+  }
+  if (quantity > maxQuantity) {
+    purchaseQuantity.value = maxQuantity
+    return
+  }
+  purchaseQuantity.value = Math.floor(quantity)
+}
+
+function isFixedPurchaseQuantity(product: ProductResponse) {
+  return product.maxPurchaseQuantity != null && product.maxPurchaseQuantity === (product.minPurchaseQuantity || 1)
+}
+
+async function submitPurchase() {
+  if (!purchasingProduct.value || !canSubmitPurchase.value) return
+  purchaseSubmitting.value = true
+  purchaseMessage.value = ''
+  try {
+    const result = await requestUserJson<VirtualOrderResponse[]>('/api/orders', {
+      method: 'POST',
+      body: {
+        productId: purchasingProduct.value.id,
+        quantity: Number(purchaseQuantity.value),
+        rechargeAccount: purchaseAccounts.value.join('\n'),
+        paymentMethod: purchasePaymentMethod.value,
+      },
+    })
+    purchaseMessage.value = `下单成功，共创建 ${result.data.length} 个订单`
+    purchaseModalOpen.value = false
+    await Promise.all([loadCurrentUserProfile(), loadBuyerOrders()])
+  } catch (error) {
+    purchaseMessage.value = error instanceof Error ? error.message : '下单失败'
+  } finally {
+    purchaseSubmitting.value = false
+  }
+}
+
+async function loadBuyerOrders() {
+  buyerOrderLoading.value = true
+  buyerOrderMessage.value = ''
+  try {
+    const params = new URLSearchParams()
+    if (buyerOrderFilters.rechargeAccount.trim()) params.set('rechargeAccount', buyerOrderFilters.rechargeAccount.trim())
+    if (buyerOrderFilters.productName.trim()) params.set('productName', buyerOrderFilters.productName.trim())
+    if (buyerOrderFilters.productId.trim()) params.set('productId', buyerOrderFilters.productId.trim())
+    if (buyerOrderFilters.orderNo.trim()) params.set('orderNo', buyerOrderFilters.orderNo.trim())
+    if (buyerOrderFilters.channelOrderNo.trim()) params.set('channelOrderNo', buyerOrderFilters.channelOrderNo.trim())
+    if (buyerOrderFilters.status) params.set('status', buyerOrderFilters.status)
+    if (buyerOrderFilters.startTime) params.set('startTime', buyerOrderFilters.startTime)
+    if (buyerOrderFilters.endTime) params.set('endTime', buyerOrderFilters.endTime)
+    const query = params.toString()
+    const result = await requestUserJson<VirtualOrderResponse[]>(`/api/orders${query ? `?${query}` : ''}`)
+    buyerOrders.value = result.data
+  } catch (error) {
+    buyerOrderMessage.value = error instanceof Error ? error.message : '订单加载失败'
+  } finally {
+    buyerOrderLoading.value = false
+  }
+}
+
+function resetBuyerOrderFilters() {
+  Object.assign(buyerOrderFilters, {
+    rechargeAccount: '',
+    productName: '',
+    productId: '',
+    orderNo: '',
+    channelOrderNo: '',
+    status: '',
+    paymentMethod: '',
+    startTime: '',
+    endTime: '',
+  })
+  loadBuyerOrders()
+}
+
+function setBuyerOrderDateRange(range: 'today' | 'yesterday' | 'week' | 'month' | 'twoMonths' | 'threeMonths') {
+  const now = new Date()
+  const start = new Date(now)
+  const end = new Date(now)
+  if (range === 'yesterday') {
+    start.setDate(now.getDate() - 1)
+    end.setDate(now.getDate() - 1)
+  } else if (range === 'week') {
+    start.setDate(now.getDate() - 6)
+  } else if (range === 'month') {
+    start.setMonth(now.getMonth() - 1)
+  } else if (range === 'twoMonths') {
+    start.setMonth(now.getMonth() - 2)
+  } else if (range === 'threeMonths') {
+    start.setMonth(now.getMonth() - 3)
+  }
+  start.setHours(0, 0, 0, 0)
+  end.setHours(23, 59, 59, 0)
+  buyerOrderFilters.startTime = formatInputDateTime(start)
+  buyerOrderFilters.endTime = formatInputDateTime(end)
+  loadBuyerOrders()
+}
+
+async function loadAdminOrders() {
+  adminOrderLoading.value = true
+  adminOrderMessage.value = ''
+  try {
+    const params = new URLSearchParams()
+    if (adminOrderFilters.orderNo.trim()) params.set('orderNo', adminOrderFilters.orderNo.trim())
+    if (adminOrderFilters.status) params.set('status', adminOrderFilters.status)
+    if (adminOrderFilters.productName.trim()) params.set('productName', adminOrderFilters.productName.trim())
+    if (adminOrderFilters.rechargeAccount.trim()) params.set('rechargeAccount', adminOrderFilters.rechargeAccount.trim())
+    if (adminOrderFilters.paymentMethod) params.set('paymentMethod', adminOrderFilters.paymentMethod)
+    const query = params.toString()
+    const result = await requestJson<VirtualOrderResponse[]>(`/api/admin/orders${query ? `?${query}` : ''}`)
+    adminOrders.value = result.data
+  } catch (error) {
+    adminOrderMessage.value = error instanceof Error ? error.message : '订单加载失败'
+  } finally {
+    adminOrderLoading.value = false
+  }
+}
+
+async function loadAdminUsers() {
+  adminUserLoading.value = true
+  adminUserMessage.value = ''
+  try {
+    const params = new URLSearchParams()
+    if (adminUserFilters.keyword.trim()) params.set('keyword', adminUserFilters.keyword.trim())
+    if (adminUserFilters.status !== '') params.set('status', String(adminUserFilters.status))
+    const query = params.toString()
+    const result = await requestJson<AdminUserResponse[]>(`/api/admin/users${query ? `?${query}` : ''}`)
+    adminUsers.value = result.data
+  } catch (error) {
+    adminUserMessage.value = error instanceof Error ? error.message : '用户加载失败'
+  } finally {
+    adminUserLoading.value = false
+  }
+}
+
+function resetAdminUserFilters() {
+  Object.assign(adminUserFilters, { keyword: '', status: '' })
+  loadAdminUsers()
+}
+
+async function changeAdminUserStatus(user: AdminUserResponse) {
+  adminUserMessage.value = ''
+  try {
+    const status = user.status === 1 ? 0 : 1
+    await requestJson<AdminUserResponse>(`/api/admin/users/${user.id}/status`, {
+      method: 'PATCH',
+      body: { status },
+    })
+    await loadAdminUsers()
+  } catch (error) {
+    adminUserMessage.value = error instanceof Error ? error.message : '用户状态更新失败'
+  }
+}
+
+async function adjustAdminUserBalance(user: AdminUserResponse) {
+  const input = window.prompt('请输入余额调整金额，正数为充值，负数为扣减', '0.00')
+  if (input == null) return
+  const amount = Number(input)
+  if (!Number.isFinite(amount) || amount === 0) {
+    adminUserMessage.value = '请输入非零数字金额'
+    return
+  }
+  adminUserMessage.value = ''
+  try {
+    await requestJson<AdminUserResponse>(`/api/admin/users/${user.id}/balance`, {
+      method: 'PATCH',
+      body: { amount },
+    })
+    await loadAdminUsers()
+  } catch (error) {
+    adminUserMessage.value = error instanceof Error ? error.message : '余额调整失败'
+  }
+}
+
+function resetAdminOrderFilters() {
+  Object.assign(adminOrderFilters, { orderNo: '', status: '', productName: '', rechargeAccount: '', paymentMethod: '' })
+  loadAdminOrders()
+}
+
+async function updateAdminOrderStatus(order: VirtualOrderResponse, status: VirtualOrderStatus) {
+  const exceptionMessage = status === 'EXCEPTION' ? window.prompt('请输入异常原因', order.exceptionMessage || '') || '' : null
+  try {
+    await requestJson<VirtualOrderResponse>(`/api/admin/orders/${order.id}/status`, {
+      method: 'PATCH',
+      body: { status, exceptionMessage },
+    })
+    await loadAdminOrders()
+  } catch (error) {
+    adminOrderMessage.value = error instanceof Error ? error.message : '订单状态更新失败'
+  }
 }
 
 async function handleAdminSubmit() {
@@ -1362,6 +1815,50 @@ function formatDateTime(value?: string) {
   return value.replace('T', ' ').slice(0, 19)
 }
 
+function formatInputDateTime(value: Date) {
+  const pad = (item: number) => String(item).padStart(2, '0')
+  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())} ${pad(value.getHours())}:${pad(value.getMinutes())}:${pad(value.getSeconds())}`
+}
+
+function orderStatusLabel(status: VirtualOrderStatus | '') {
+  const labels: Record<VirtualOrderStatus, string> = {
+    PENDING: '待处理',
+    PROCESSING: '处理中',
+    SUCCESS: '充值成功',
+    REFUNDED: '已退款',
+    EXCEPTION: '异常',
+  }
+  return status ? labels[status] : '全部状态'
+}
+
+function paymentMethodLabel(method?: string | null) {
+  return method === 'BALANCE' ? '余额支付' : method || '-'
+}
+
+function userStatusLabel(status?: number | null) {
+  return status === 1 ? '启用' : '禁用'
+}
+
+function orderProductImage(order: VirtualOrderResponse) {
+  if (!order.productSnapshot) return ''
+  try {
+    const snapshot = JSON.parse(order.productSnapshot) as { image?: string | null }
+    return snapshot.image || ''
+  } catch {
+    return ''
+  }
+}
+
+function formatDuration(seconds?: number | null) {
+  if (seconds == null) return '-'
+  if (seconds < 60) return `${seconds}秒`
+  const minutes = Math.floor(seconds / 60)
+  const remainSeconds = seconds % 60
+  if (minutes < 60) return `${minutes}分${remainSeconds}秒`
+  const hours = Math.floor(minutes / 60)
+  return `${hours}时${minutes % 60}分`
+}
+
 async function loadOrderTemplates() {
   orderTemplateLoading.value = true
   orderTemplateMessage.value = ''
@@ -1591,6 +2088,7 @@ async function openEditProductModal(product: ProductResponse) {
       channelProductId: binding.channelProductId,
       channelProductName: binding.channelProductName,
       channelCostPrice: Number(binding.channelCostPrice),
+      active: Boolean(binding.active),
       sort: binding.sort,
       status: binding.status,
     })),
@@ -1633,6 +2131,7 @@ async function saveProduct() {
         channelProductId: binding.channelProductId.trim(),
         channelProductName: binding.channelProductName.trim(),
         channelCostPrice: Number(binding.channelCostPrice),
+        active: Boolean(binding.active),
         sort: Number(binding.sort) || index + 1,
         status: binding.status,
       })),
@@ -1857,6 +2356,7 @@ function addProductSupplyBinding() {
     channelProductId: '',
     channelProductName: '',
     channelCostPrice: 0,
+    active: productForm.supplyBindings.length === 0,
     sort: productForm.supplyBindings.length + 1,
     status: 1,
   })
@@ -1866,6 +2366,12 @@ function removeProductSupplyBinding(index: number) {
   productForm.supplyBindings.splice(index, 1)
   productForm.supplyBindings.forEach((binding, bindingIndex) => {
     binding.sort = bindingIndex + 1
+  })
+}
+
+function setActiveSupplyBinding(index: number, checked: boolean) {
+  productForm.supplyBindings.forEach((binding, bindingIndex) => {
+    binding.active = checked && bindingIndex === index
   })
 }
 
@@ -1932,6 +2438,10 @@ function readAdminToken() {
   return localStorage.getItem('zerolanshop_admin_token') || sessionStorage.getItem('zerolanshop_admin_token')
 }
 
+function readUserToken() {
+  return localStorage.getItem('zerolanshop_token') || sessionStorage.getItem('zerolanshop_token')
+}
+
 async function requestJson<T>(
   endpoint: string,
   options: { method?: string; body?: unknown; auth?: boolean } = {},
@@ -1943,6 +2453,28 @@ async function requestJson<T>(
     const token = readAdminToken()
     if (token) headers.Authorization = `Bearer ${token}`
   }
+
+  const response = await fetch(endpoint, {
+    method: options.method || 'GET',
+    headers,
+    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+  })
+
+  if (!response.ok) throw new Error(`请求失败：${response.status}`)
+  const result = (await response.json()) as ApiResult<T>
+  if (result.code !== 200) throw new Error(result.message || '请求失败')
+  return result
+}
+
+async function requestUserJson<T>(
+  endpoint: string,
+  options: { method?: string; body?: unknown } = {},
+) {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  }
+  const token = readUserToken()
+  if (token) headers.Authorization = `Bearer ${token}`
 
   const response = await fetch(endpoint, {
     method: options.method || 'GET',
@@ -2052,8 +2584,8 @@ async function requestForm<T>(
       </div>
       <nav class="buyer-nav" aria-label="采购端导航">
         <button :class="{ active: buyerView === 'dashboard' }" type="button" @click="navigate('/index')"><Home :size="20" />主页</button>
-        <button :class="{ active: buyerView !== 'dashboard' }" type="button" @click="navigate('/purchase/benefits')"><ShoppingCart :size="20" />采购中心</button>
-        <button type="button"><Box :size="20" />订单管理</button>
+        <button :class="{ active: buyerView === 'benefits' || buyerView === 'products' }" type="button" @click="navigate('/purchase/benefits')"><ShoppingCart :size="20" />采购中心</button>
+        <button :class="{ active: buyerView === 'orders' }" type="button" @click="navigate('/purchase/orders')"><Box :size="20" />订单管理</button>
         <button type="button"><WalletCards :size="20" />财务管理</button>
         <button type="button"><CreditCard :size="20" />卡密中心</button>
         <button type="button"><BarChart3 :size="20" />报表中心</button>
@@ -2065,7 +2597,8 @@ async function requestForm<T>(
     <section class="buyer-main">
       <header class="buyer-topbar">
         <h1 v-if="buyerView === 'dashboard'">采购工作台</h1>
-        <nav v-else class="buyer-section-tabs" aria-label="采购中心栏目">
+        <h1 v-else-if="buyerView === 'orders'">订单管理</h1>
+        <nav v-else-if="buyerView === 'benefits' || buyerView === 'products'" class="buyer-section-tabs" aria-label="采购中心栏目">
           <button :class="{ active: buyerView === 'benefits' }" type="button" @click="switchBuyerView('benefits')">权益中心</button>
           <button :class="{ active: buyerView === 'products' }" type="button" @click="switchBuyerView('products')">全部商品</button>
         </nav>
@@ -2201,7 +2734,7 @@ async function requestForm<T>(
               </span>
               <span class="sale-status"><i></i>{{ product.status === 1 ? '正在销售' : '已下架' }}</span>
               <span>{{ formatDateTime(product.updateTime || product.createTime) }}</span>
-              <button class="text-action edit" type="button">采购</button>
+              <button class="text-action edit" type="button" @click="openPurchaseModal(product)">采购</button>
             </div>
             <div v-if="!pagedBuyerProducts.length && !buyerStoreLoading" class="empty-row">暂无商品数据</div>
           </div>
@@ -2232,6 +2765,85 @@ async function requestForm<T>(
           <p v-if="buyerStoreLoading" class="toolbar-note">正在加载商品...</p>
         </section>
 
+        <section v-else-if="buyerView === 'orders'" class="buyer-store-view buyer-order-view">
+          <div class="buyer-order-toolbar">
+            <input v-model="buyerOrderFilters.rechargeAccount" placeholder="请输入充值账号" type="text" @keyup.enter="loadBuyerOrders" />
+            <input v-model="buyerOrderFilters.productName" placeholder="请输入商品名称" type="text" @keyup.enter="loadBuyerOrders" />
+            <input v-model="buyerOrderFilters.productId" placeholder="请输入商品编号" type="text" @keyup.enter="loadBuyerOrders" />
+            <input v-model="buyerOrderFilters.orderNo" placeholder="请输入订单号" type="text" @keyup.enter="loadBuyerOrders" />
+            <input v-model="buyerOrderFilters.channelOrderNo" placeholder="请输入外部订单号" type="text" @keyup.enter="loadBuyerOrders" />
+            <select v-model="buyerOrderFilters.status">
+              <option value="">请选择充值状态</option>
+              <option value="PENDING">待处理</option>
+              <option value="PROCESSING">处理中</option>
+              <option value="SUCCESS">充值成功</option>
+              <option value="REFUNDED">已退款</option>
+              <option value="EXCEPTION">异常</option>
+            </select>
+            <input v-model="buyerOrderFilters.startTime" placeholder="开始时间" type="text" />
+            <input v-model="buyerOrderFilters.endTime" placeholder="结束时间" type="text" />
+            <button class="primary-action" type="button" @click="loadBuyerOrders">查询</button>
+            <button class="soft-action" type="button" @click="resetBuyerOrderFilters">重置</button>
+          </div>
+          <div class="order-shortcuts">
+            <button class="soft-action" type="button" @click="setBuyerOrderDateRange('today')">今天</button>
+            <button class="soft-action" type="button" @click="setBuyerOrderDateRange('yesterday')">昨天</button>
+            <button class="soft-action" type="button" @click="setBuyerOrderDateRange('week')">近一周</button>
+            <button class="soft-action" type="button" @click="setBuyerOrderDateRange('month')">近一月</button>
+            <button class="soft-action" type="button" @click="setBuyerOrderDateRange('twoMonths')">近俩月</button>
+            <button class="soft-action" type="button" @click="setBuyerOrderDateRange('threeMonths')">近仨月</button>
+          </div>
+          <p v-if="buyerOrderMessage" class="buyer-message">{{ buyerOrderMessage }}</p>
+          <div class="buyer-order-table">
+            <div class="buyer-order-row table-head" role="row">
+              <span>商品信息</span>
+              <span>订单号</span>
+              <span>数量</span>
+              <span>金额</span>
+              <span>类型</span>
+              <span>充值账号</span>
+              <span>创建时间</span>
+              <span>处理状态</span>
+              <span>操作</span>
+            </div>
+            <div v-for="order in buyerOrders" :key="order.id" class="buyer-order-row" role="row">
+              <span class="buyer-product-info">
+                <span class="benefit-thumb small">
+                  <img v-if="orderProductImage(order)" :src="orderProductImage(order)" :alt="order.productName" />
+                  <Package v-else :size="18" />
+                </span>
+                <span>
+                  <strong>{{ order.productName }}</strong>
+                  <small>编号：{{ order.productId }}</small>
+                </span>
+              </span>
+              <span>{{ order.orderNo }}</span>
+              <span>{{ order.quantity }}</span>
+              <strong>{{ formatMoney(order.orderAmount) }}</strong>
+              <span class="direct-tag">直充</span>
+              <span>{{ order.rechargeAccount }}</span>
+              <span>{{ formatDateTime(order.createdAt) }}</span>
+              <span class="order-status" :class="order.status.toLowerCase()">{{ orderStatusLabel(order.status) }}</span>
+              <span class="row-actions">
+                <button class="text-action edit" type="button" :title="order.exceptionMessage || order.channelOrderNo || '订单详情'"><FileText :size="14" /></button>
+              </span>
+            </div>
+            <div v-if="!buyerOrders.length && !buyerOrderLoading" class="empty-row">暂无订单数据</div>
+          </div>
+          <div class="buyer-pagination">
+            <span>共 {{ buyerOrders.length }} 条</span>
+            <div>
+              <button class="soft-action pager-button" type="button" disabled>&lt;</button>
+              <button class="soft-action pager-button active" type="button">1</button>
+              <button class="soft-action pager-button" type="button" disabled>&gt;</button>
+              <select>
+                <option>10 条/页</option>
+              </select>
+            </div>
+          </div>
+          <p v-if="buyerOrderLoading" class="toolbar-note">正在加载订单...</p>
+        </section>
+
         <section v-else class="quick-section">
           <h2>常用功能</h2>
           <div class="quick-grid">
@@ -2239,7 +2851,7 @@ async function requestForm<T>(
               <span class="quick-icon"><HandCoins :size="40" :stroke-width="2.1" /></span>
               <span>权益采购</span>
             </button>
-            <button class="quick-card" type="button" aria-label="订单记录">
+            <button class="quick-card" type="button" aria-label="订单记录" @click="navigate('/purchase/orders')">
               <span class="quick-icon"><ReceiptText :size="40" :stroke-width="2.1" /></span>
               <span>订单记录</span>
             </button>
@@ -2290,6 +2902,116 @@ async function requestForm<T>(
           </aside>
         </section>
       </div>
+
+      <div v-if="purchaseModalOpen && purchasingProduct" class="modal-mask purchase-modal-mask" role="dialog" aria-modal="true">
+        <section class="purchase-modal">
+          <header>
+            <h2>直充在线购买</h2>
+            <button type="button" aria-label="关闭" @click="purchaseModalOpen = false"><X :size="18" /></button>
+          </header>
+          <div class="purchase-product-line">
+            <span class="benefit-thumb">
+              <img v-if="purchasingProduct.image" :src="purchasingProduct.image" :alt="purchasingProduct.name" />
+              <Package v-else :size="24" />
+            </span>
+            <div>
+              <strong>{{ purchasingProduct.name }}</strong>
+              <small>{{ purchasingProduct.categoryName || '-' }}</small>
+            </div>
+            <span class="direct-tag">直充</span>
+            <small>编号{{ purchasingProduct.id }}</small>
+          </div>
+          <dl class="purchase-summary">
+            <div><dt>单价</dt><dd>{{ formatMoney(purchasingProduct.salePrice) }}</dd></div>
+          </dl>
+          <label class="purchase-field">
+            <span><b>*</b> 充值账号</span>
+            <textarea v-model="purchaseRechargeAccount" placeholder="每行填写一个充值账号"></textarea>
+            <small>已识别 {{ purchaseAccounts.length }} 个账号，每行会创建一个订单</small>
+          </label>
+          <div class="form-grid two">
+            <label class="purchase-field">
+              <span>充值数量</span>
+              <input
+                v-model.number="purchaseQuantity"
+                :min="purchasingProduct.minPurchaseQuantity || 1"
+                :max="purchasingProduct.maxPurchaseQuantity || undefined"
+                :readonly="isFixedPurchaseQuantity(purchasingProduct)"
+                type="number"
+                @blur="normalizePurchaseQuantity"
+                @change="normalizePurchaseQuantity"
+              />
+              <small>允许数量：{{ formatPurchaseQuantityRange(purchasingProduct) }}</small>
+            </label>
+            <label class="purchase-field">
+              <span>支付方式</span>
+              <select v-model="purchasePaymentMethod">
+                <option value="BALANCE">余额支付</option>
+              </select>
+              <small>&nbsp;</small>
+            </label>
+          </div>
+          <p v-if="purchaseMessage" class="category-message">{{ purchaseMessage }}</p>
+          <footer>
+            <div class="purchase-total">
+              <small>共 {{ purchaseAccounts.length }} 个账号，每个账号 {{ purchaseQuantity || 0 }} 件，合计支付：</small>
+              <strong>{{ formatMoney(purchaseTotalAmount) }}</strong>
+              <small class="purchase-balance">当前余额：{{ formatMoney(currentBalance) }}</small>
+            </div>
+            <label class="inline-check">
+              <input v-model="purchaseConfirmed" type="checkbox" />
+              <span>我已确认账号、购买数量、订单金额无误。</span>
+            </label>
+            <div class="purchase-actions">
+              <button class="soft-action" type="button" @click="purchaseModalOpen = false">取消</button>
+              <button class="primary-action danger" type="button" :disabled="!canSubmitPurchase" @click="submitPurchase">
+                {{ purchaseSubmitting ? '支付中...' : '确认支付' }}
+              </button>
+            </div>
+          </footer>
+        </section>
+      </div>
+
+      <div v-if="buyerCategoryModalOpen" class="modal-mask buyer-category-modal-mask" role="dialog" aria-modal="true">
+        <section
+          class="buyer-category-products-modal"
+          :class="{ dragging: buyerCategoryModalDragging }"
+          :style="{ transform: `translate(${buyerCategoryModalPosition.x}px, ${buyerCategoryModalPosition.y}px)` }"
+        >
+          <header class="draggable-modal-header" @pointerdown="startBuyerCategoryModalDrag">
+            <div>
+              <h2>{{ viewingBuyerCategory?.name }}</h2>
+              <p>当前分类下共 {{ viewingCategoryProducts.length }} 个商品</p>
+            </div>
+            <button type="button" aria-label="关闭" @pointerdown.stop @click="buyerCategoryModalOpen = false"><X :size="18" /></button>
+          </header>
+
+          <div class="buyer-modal-products">
+            <article v-for="product in viewingCategoryProducts" :key="product.id" class="buyer-modal-product">
+              <span class="benefit-thumb modal-product-thumb">
+                <img v-if="product.image" :src="product.image" :alt="product.name" />
+                <Package v-else :size="24" />
+              </span>
+              <div class="buyer-modal-product-main">
+                <strong>{{ product.name }}</strong>
+                <small>编号 {{ product.id }} · 分类 {{ product.categoryName || '-' }}</small>
+                <div class="buyer-modal-product-tags">
+                  <span>单价 {{ formatMoney(product.salePrice) }}</span>
+                  <span>{{ product.faceValue ? `面值 ${formatMoney(product.faceValue)}` : '面值 -' }}</span>
+                  <span>数量 {{ formatPurchaseQuantityRange(product) }}</span>
+                  <span>{{ product.orderTemplateName || '默认下单模板' }}</span>
+                </div>
+              </div>
+              <div class="buyer-modal-product-side">
+                <span class="sale-status"><i></i>{{ product.status === 1 ? '正在销售' : '已下架' }}</span>
+                <small>{{ formatDateTime(product.updateTime || product.createTime) }}</small>
+              </div>
+              <button class="buy-action inline" type="button" @click="openPurchaseModal(product)">采购</button>
+            </article>
+            <div v-if="!viewingCategoryProducts.length" class="empty-row">当前分类暂无商品</div>
+          </div>
+        </section>
+      </div>
     </section>
   </main>
 
@@ -2329,17 +3051,17 @@ async function requestForm<T>(
         <div v-for="menu in adminMenus" :key="menu.name" class="admin-nav-group">
           <button
             type="button"
-            :class="{ active: menu.view === adminView || (menu.children && isGoodsAdminView()) }"
-            @click="menu.view && switchAdminView(menu.view)"
+            :class="{ active: isAdminMenuActive(menu), expanded: menu.children?.length && menu.expanded }"
+            @click="handleAdminMenuClick(menu)"
           >
             <component :is="menu.icon" :size="18" />
             <span>{{ menu.name }}</span>
-            <ChevronDown v-if="menu.expanded" :size="16" class="nav-arrow" />
-            <ChevronRight v-else :size="16" class="nav-arrow" />
+            <ChevronDown v-if="menu.children?.length && menu.expanded" :size="16" class="nav-arrow" />
+            <ChevronRight v-else-if="menu.children?.length" :size="16" class="nav-arrow" />
           </button>
           <div v-if="menu.children && menu.expanded" class="sub-nav">
             <button
-              v-for="(child, childIndex) in menu.children"
+              v-for="child in menu.children"
               :key="child.name"
               type="button"
               :class="{ active: child.view === adminView }"
@@ -2602,6 +3324,184 @@ async function requestForm<T>(
 
           <footer class="category-footer">
             <span>共 {{ totalCategoryCount }} 条记录，已选择 {{ selectedIds.length }} 条</span>
+          </footer>
+        </section>
+      </div>
+
+      <div v-else-if="adminView === 'user'" class="admin-content">
+        <section class="page-heading">
+          <h2>用户管理</h2>
+          <p>查看采购端用户、账户余额与登录状态</p>
+        </section>
+
+        <section class="category-panel">
+          <div class="category-toolbar pricing-toolbar">
+            <label>
+              <span>关键词</span>
+              <input v-model="adminUserFilters.keyword" placeholder="账号/昵称/邮箱/手机" type="text" @keyup.enter="loadAdminUsers" />
+            </label>
+            <label>
+              <span>状态</span>
+              <select v-model="adminUserFilters.status">
+                <option value="">全部</option>
+                <option :value="1">启用</option>
+                <option :value="0">禁用</option>
+              </select>
+            </label>
+            <button class="soft-action" type="button" @click="loadAdminUsers">筛选</button>
+            <button class="soft-action" type="button" @click="resetAdminUserFilters">重置</button>
+            <p v-if="adminUserLoading" class="toolbar-note">正在加载用户...</p>
+          </div>
+
+          <p v-if="adminUserMessage" class="category-message">{{ adminUserMessage }}</p>
+          <div class="category-table" role="table" aria-label="用户列表">
+            <div class="admin-user-row table-head" role="row">
+              <span>用户</span>
+              <span>联系方式</span>
+              <span>余额</span>
+              <span>状态</span>
+              <span>注册信息</span>
+              <span>最近登录</span>
+              <span>操作</span>
+            </div>
+            <div v-for="user in adminUsers" :key="user.id" class="admin-user-row" role="row">
+              <span class="user-cell">
+                <span class="avatar mini">{{ (user.nickname || user.username).slice(0, 1).toUpperCase() }}</span>
+                <span>
+                  <strong>{{ user.username }}</strong>
+                  <small>{{ user.nickname || '未设置昵称' }}</small>
+                </span>
+              </span>
+              <span>
+                {{ user.phone || '-' }}<br />
+                <small>{{ user.email || '-' }}</small>
+              </span>
+              <strong>{{ formatMoney(user.balance) }}</strong>
+              <span class="order-status" :class="{ success: user.status === 1, refunded: user.status === 0 }">{{ userStatusLabel(user.status) }}</span>
+              <span>
+                {{ formatDateTime(user.registerTime) }}<br />
+                <small>{{ user.registerIp || '-' }}</small>
+              </span>
+              <span>{{ formatDateTime(user.lastLoginTime) }}</span>
+              <span class="table-actions">
+                <button class="text-action edit" type="button" @click="adjustAdminUserBalance(user)">调余额</button>
+                <button class="text-action" :class="user.status === 1 ? 'danger' : 'edit'" type="button" @click="changeAdminUserStatus(user)">
+                  {{ user.status === 1 ? '禁用' : '启用' }}
+                </button>
+              </span>
+            </div>
+            <div v-if="!adminUsers.length && !adminUserLoading" class="empty-row">暂无用户数据</div>
+          </div>
+          <footer class="table-footer">
+            <span>共 {{ adminUsers.length }} 条记录</span>
+          </footer>
+        </section>
+      </div>
+
+      <div v-else-if="adminView === 'order'" class="admin-content admin-order-page">
+        <section class="page-heading">
+          <h2>订单管理</h2>
+          <div class="category-toolbar admin-order-toolbar">
+            <label>
+              <span>订单号</span>
+              <input v-model="adminOrderFilters.orderNo" placeholder="输入订单号" type="text" @keyup.enter="loadAdminOrders" />
+            </label>
+            <label>
+              <span>商品名称</span>
+              <input v-model="adminOrderFilters.productName" placeholder="输入商品名称" type="text" @keyup.enter="loadAdminOrders" />
+            </label>
+            <label>
+              <span>充值账号</span>
+              <input v-model="adminOrderFilters.rechargeAccount" placeholder="输入充值账号" type="text" @keyup.enter="loadAdminOrders" />
+            </label>
+            <label>
+              <span>状态</span>
+              <select v-model="adminOrderFilters.status">
+                <option value="">全部</option>
+                <option value="PENDING">待处理</option>
+                <option value="PROCESSING">处理中</option>
+                <option value="SUCCESS">充值成功</option>
+                <option value="REFUNDED">已退款</option>
+                <option value="EXCEPTION">异常</option>
+              </select>
+            </label>
+            <label>
+              <span>支付方式</span>
+              <select v-model="adminOrderFilters.paymentMethod">
+                <option value="">全部</option>
+                <option value="BALANCE">余额支付</option>
+              </select>
+            </label>
+            <span class="admin-order-filter-actions">
+              <button class="primary-action" type="button" @click="loadAdminOrders">
+                <Search :size="16" />
+                筛选
+              </button>
+              <button class="soft-action" type="button" @click="resetAdminOrderFilters">
+                <X :size="15" />
+                重置
+              </button>
+            </span>
+            <p v-if="adminOrderLoading" class="toolbar-note">正在加载订单...</p>
+          </div>
+          <p v-if="adminOrderMessage" class="category-message">{{ adminOrderMessage }}</p>
+          <div class="category-table admin-order-panel" role="table" aria-label="订单列表">
+            <div class="admin-order-table-scroll">
+              <div class="admin-order-row table-head" role="row">
+                <span>订单号</span>
+                <span>用户</span>
+                <span>商品</span>
+                <span>数量/金额</span>
+                <span>充值账号</span>
+                <span>状态</span>
+                <span>时间</span>
+                <span>来源/支付</span>
+                <span>渠道</span>
+                <span>操作</span>
+              </div>
+              <div v-for="order in adminOrders" :key="order.id" class="admin-order-row" role="row">
+                <strong class="order-no-cell">{{ order.orderNo }}</strong>
+                <span class="admin-order-user">{{ order.username }}</span>
+                <span class="buyer-product-info admin-order-product">
+                  <span class="benefit-thumb small">
+                    <img v-if="orderProductImage(order)" :src="orderProductImage(order)" :alt="order.productName" />
+                    <Package v-else :size="18" />
+                  </span>
+                  <span class="template-name">
+                    <strong>{{ order.productName }}</strong>
+                    <small>编号：{{ order.productId }}</small>
+                  </span>
+                </span>
+                <span class="admin-order-amount">
+                  <small>{{ order.quantity }} 件</small>
+                  <strong>{{ formatMoney(order.orderAmount) }}</strong>
+                </span>
+                <span class="admin-order-account">{{ order.rechargeAccount }}</span>
+                <span class="order-status" :class="order.status.toLowerCase()">{{ orderStatusLabel(order.status) }}</span>
+                <span class="admin-order-meta">
+                  <span><b>下单</b>{{ formatDateTime(order.createdAt) }}</span>
+                  <span><b>处理</b>{{ formatDateTime(order.processedAt || undefined) }}</span>
+                  <span><b>耗时</b>{{ formatDuration(order.processingDurationSeconds) }}</span>
+                </span>
+                <span class="admin-order-meta">
+                  <span><b>IP</b>{{ order.sourceIp || '-' }}</span>
+                  <span><b>支付</b>{{ paymentMethodLabel(order.paymentMethod) }}</span>
+                </span>
+                <span class="admin-order-channel">
+                  <strong>{{ order.channelName || '-' }}</strong>
+                  <small>{{ order.channelOrderNo || order.exceptionMessage || '-' }}</small>
+                </span>
+                <span class="table-actions admin-order-actions">
+                  <button class="text-action edit" type="button" @click="updateAdminOrderStatus(order, 'SUCCESS')">成功</button>
+                  <button class="text-action edit" type="button" @click="updateAdminOrderStatus(order, 'REFUNDED')">退款</button>
+                  <button class="text-action danger" type="button" @click="updateAdminOrderStatus(order, 'EXCEPTION')">异常</button>
+                </span>
+              </div>
+            </div>
+            <div v-if="!adminOrders.length && !adminOrderLoading" class="empty-row">暂无订单数据</div>
+          </div>
+          <footer class="table-footer">
+            <span>共 {{ adminOrders.length }} 条记录</span>
           </footer>
         </section>
       </div>
@@ -3002,30 +3902,60 @@ async function requestForm<T>(
       </form>
     </div>
 
-    <div v-if="buyerCategoryModalOpen" class="modal-mask" role="dialog" aria-modal="true">
-      <section class="buyer-category-products-modal">
+    <div v-if="purchaseModalOpen && purchasingProduct" class="modal-mask" role="dialog" aria-modal="true">
+      <section class="purchase-modal">
         <header>
-          <div>
-            <h2>{{ viewingBuyerCategory?.name }}</h2>
-            <p>当前分类下共 {{ viewingCategoryProducts.length }} 个商品</p>
-          </div>
-          <button type="button" aria-label="关闭" @click="buyerCategoryModalOpen = false"><X :size="18" /></button>
+          <h2>直充在线购买</h2>
+          <button type="button" aria-label="关闭" @click="purchaseModalOpen = false"><X :size="18" /></button>
         </header>
-
-        <div class="buyer-modal-products">
-          <article v-for="product in viewingCategoryProducts" :key="product.id" class="buyer-modal-product">
-            <span class="benefit-thumb small">
-              <img v-if="product.image" :src="product.image" :alt="product.name" />
-              <Package v-else :size="18" />
-            </span>
-            <span>
-              <strong>{{ product.name }}</strong>
-              <small>{{ product.faceValue ? `面值 ${formatMoney(product.faceValue)}` : `售价 ${formatMoney(product.salePrice)}` }}</small>
-            </span>
-            <button class="buy-action inline" type="button">采购</button>
-          </article>
-          <div v-if="!viewingCategoryProducts.length" class="empty-row">当前分类暂无商品</div>
+        <div class="purchase-product-line">
+          <span class="benefit-thumb">
+            <img v-if="purchasingProduct.image" :src="purchasingProduct.image" :alt="purchasingProduct.name" />
+            <Package v-else :size="24" />
+          </span>
+          <div>
+            <strong>{{ purchasingProduct.name }}</strong>
+            <small>{{ purchasingProduct.categoryName || '-' }}</small>
+          </div>
+          <span class="direct-tag">直充</span>
+          <small>编号{{ purchasingProduct.id }}</small>
         </div>
+        <dl class="purchase-summary">
+          <div><dt>商品面值</dt><dd>{{ purchasingProduct.faceValue ? formatMoney(purchasingProduct.faceValue) : '-' }}</dd></div>
+          <div><dt>单价</dt><dd>{{ formatMoney(purchasingProduct.salePrice) }}</dd></div>
+          <div><dt>当前余额</dt><dd>{{ formatMoney(currentBalance) }}</dd></div>
+        </dl>
+        <label class="purchase-field">
+          <span><b>*</b> 充值账号</span>
+          <textarea v-model="purchaseRechargeAccount" placeholder="请输入充值账号"></textarea>
+        </label>
+        <div class="form-grid two">
+          <label class="purchase-field">
+            <span>充值数量</span>
+            <input v-model.number="purchaseQuantity" :min="purchasingProduct.minPurchaseQuantity || 1" :max="purchasingProduct.maxPurchaseQuantity || undefined" type="number" />
+          </label>
+          <label class="purchase-field">
+            <span>支付方式</span>
+            <select v-model="purchasePaymentMethod">
+              <option value="BALANCE">余额支付</option>
+            </select>
+          </label>
+        </div>
+        <p v-if="purchaseMessage" class="category-message">{{ purchaseMessage }}</p>
+        <footer>
+          <div>
+            <small>共 {{ purchaseQuantity || 0 }} 件，合计支付：</small>
+            <strong>{{ formatMoney(purchaseTotalAmount) }}</strong>
+          </div>
+          <label class="inline-check">
+            <input v-model="purchaseConfirmed" type="checkbox" />
+            <span>我已确认账号、购买数量、订单金额无误。</span>
+          </label>
+          <button class="soft-action" type="button" @click="purchaseModalOpen = false">取消</button>
+          <button class="primary-action danger" type="button" :disabled="!canSubmitPurchase" @click="submitPurchase">
+            {{ purchaseSubmitting ? '支付中...' : '确认支付' }}
+          </button>
+        </footer>
       </section>
     </div>
 
@@ -3196,6 +4126,10 @@ async function requestForm<T>(
             <label class="binding-field">
               <span>渠道成本</span>
               <input v-model.number="binding.channelCostPrice" min="0" step="0.01" type="number" placeholder="同步后填充" />
+            </label>
+            <label class="inline-check binding-active-check">
+              <input :checked="Boolean(binding.active)" type="checkbox" @change="setActiveSupplyBinding(index, ($event.target as HTMLInputElement).checked)" />
+              <span>生效</span>
             </label>
             <label class="binding-field">
               <span>状态</span>

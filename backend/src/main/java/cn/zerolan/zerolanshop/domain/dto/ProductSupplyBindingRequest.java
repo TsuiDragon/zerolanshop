@@ -11,6 +11,7 @@ public class ProductSupplyBindingRequest {
     private String channelProductId;
     private String channelProductName;
     private BigDecimal channelCostPrice;
+    private Boolean active;
     private Integer sort;
     private Integer status;
 }

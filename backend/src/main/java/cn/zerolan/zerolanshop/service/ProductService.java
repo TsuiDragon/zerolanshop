@@ -254,6 +254,10 @@ public class ProductService {
         List<ProductSupplyBindingRequest> sortedBindings = bindings.stream()
                 .sorted(Comparator.comparing(binding -> binding.getSort() == null ? 0 : binding.getSort()))
                 .toList();
+        long activeCount = sortedBindings.stream().filter(binding -> Boolean.TRUE.equals(binding.getActive())).count();
+        if (activeCount > 1) {
+            throw new RuntimeException("Only one supply channel binding can be active");
+        }
         int index = 1;
         for (ProductSupplyBindingRequest request : sortedBindings) {
             ProductSupplyBinding binding = new ProductSupplyBinding();
@@ -262,6 +266,7 @@ public class ProductService {
             binding.setChannelProductId(normalizeRequiredText(request.getChannelProductId(), "Channel product ID is required", 100));
             binding.setChannelProductName(normalizeRequiredText(request.getChannelProductName(), "Channel product name is required", 100));
             binding.setChannelCostPrice(normalizeMoney(request.getChannelCostPrice(), "Channel cost price"));
+            binding.setActive(Boolean.TRUE.equals(request.getActive()));
             Integer status = request.getStatus() == null ? STATUS_ENABLED : request.getStatus();
             validateStatus(status);
             validateSort(request.getSort());

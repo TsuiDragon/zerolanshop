@@ -28,7 +28,7 @@ import java.util.stream.Collectors;
 @Service
 public class YoukayunClient {
 
-    private static final String ORDER_BUY_PATH = "/api/v1/order/buy";
+    private static final String ORDER_BUY_PATH = "/api/buygoods";
     private static final String BALANCE_PATH = "/api/getusermoney";
     private static final String PRODUCT_DETAIL_PATH = "/api/goodsdetails";
 
@@ -60,7 +60,7 @@ public class YoukayunClient {
             body.put("userid", channel.getUserId());
             body.put("sign", buildSign(body, channel.getSecretKey()));
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(channel.getApiUrl() + ORDER_BUY_PATH))
+                    .uri(URI.create(buildUrl(channel.getApiUrl(), ORDER_BUY_PATH)))
                     .timeout(Duration.ofSeconds(20))
                     .header("Content-Type", "application/x-www-form-urlencoded;charset=UTF-8")
                     .POST(HttpRequest.BodyPublishers.ofString(toFormBody(body), StandardCharsets.UTF_8))
@@ -84,7 +84,7 @@ public class YoukayunClient {
             body.put("userid", channel.getUserId());
             body.put("sign", buildSign(body, channel.getSecretKey()));
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(channel.getApiUrl() + BALANCE_PATH))
+                    .uri(URI.create(buildUrl(channel.getApiUrl(), BALANCE_PATH)))
                     .timeout(Duration.ofSeconds(20))
                     .header("Content-Type", "application/x-www-form-urlencoded;charset=UTF-8")
                     .POST(HttpRequest.BodyPublishers.ofString(toFormBody(body), StandardCharsets.UTF_8))
@@ -109,7 +109,7 @@ public class YoukayunClient {
             body.put("userid", channel.getUserId());
             body.put("sign", buildSign(body, channel.getSecretKey()));
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(channel.getApiUrl() + PRODUCT_DETAIL_PATH))
+                    .uri(URI.create(buildUrl(channel.getApiUrl(), PRODUCT_DETAIL_PATH)))
                     .timeout(Duration.ofSeconds(20))
                     .header("Content-Type", "application/x-www-form-urlencoded;charset=UTF-8")
                     .POST(HttpRequest.BodyPublishers.ofString(toFormBody(body), StandardCharsets.UTF_8))
@@ -159,17 +159,29 @@ public class YoukayunClient {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 
-    private Map<String, Object> buildOrderBody(
+    private String buildUrl(String apiUrl, String path) {
+        String normalizedApiUrl = apiUrl == null ? "" : apiUrl.trim();
+        if (normalizedApiUrl.endsWith("/")) {
+            normalizedApiUrl = normalizedApiUrl.substring(0, normalizedApiUrl.length() - 1);
+        }
+        return normalizedApiUrl + path;
+    }
+
+    Map<String, Object> buildOrderBody(
             ProductSupplyBinding binding,
             String externalOrderNo,
             Integer quantity,
             Map<String, Object> orderParams
     ) {
+        Map<String, Object> params = orderParams == null ? Map.of() : orderParams;
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("id", binding.getChannelProductId());
-        body.put("out_trade_no", externalOrderNo);
+        body.put("goodsid", binding.getChannelProductId());
         body.put("quantity", quantity);
-        body.put("attach", orderParams == null ? Map.of() : orderParams);
+        body.put("mark", firstPresent(params, "mark", "remark", "note"));
+        body.put("maxmoney", firstPresent(params, "maxmoney", "maxMoney"));
+        body.put("accountname", firstPresent(params, "accountname", "accountName", "account", "username"));
+        body.put("outorderno", externalOrderNo);
+        body.put("callbackurl", firstPresent(params, "callbackurl", "callbackUrl", "notifyUrl"));
         return body;
     }
 
@@ -184,10 +196,7 @@ public class YoukayunClient {
         Object data = body.get("data");
         String channelOrderNo = null;
         if (data instanceof Map<?, ?> dataMap) {
-            Object orderNo = dataMap.get("order_no");
-            if (orderNo == null) {
-                orderNo = dataMap.get("orderNo");
-            }
+            Object orderNo = firstPresent(dataMap, "ordersn", "order_no", "orderNo");
             channelOrderNo = orderNo == null ? null : String.valueOf(orderNo);
         }
         SupplyOrderDispatchResponse response = new SupplyOrderDispatchResponse();

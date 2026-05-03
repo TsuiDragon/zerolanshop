@@ -5,6 +5,9 @@ zerolanshop:
   upload:
     image-dir: ${UPLOAD_IMAGE_DIR:./uploads/images}
     public-path: ${UPLOAD_PUBLIC_PATH:/uploads/images/}
+  callback:
+    base-url: ${CALLBACK_BASE_URL:http://localhost:8080}
+    youkayun-order-path: ${YOUKAYUN_ORDER_CALLBACK_PATH:/api/callbacks/youkayun/order}
 
 jwt:
   secret: ${JWT_SECRET:zerolanshop-jwt-secret-key-2026-min-32-bytes}

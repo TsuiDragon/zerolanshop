@@ -38,6 +38,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/admin/login").permitAll()
                 .requestMatchers("/api/admin/sessions").permitAll()
                 .requestMatchers("/api/public/**").permitAll()
+                .requestMatchers("/api/callbacks/**").permitAll()
                 .requestMatchers("/uploads/images/**").permitAll()
                 .anyRequest().authenticated()
             )

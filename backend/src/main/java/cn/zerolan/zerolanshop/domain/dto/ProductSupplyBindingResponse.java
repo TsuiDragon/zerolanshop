@@ -16,6 +16,7 @@ public class ProductSupplyBindingResponse {
     private String channelProductId;
     private String channelProductName;
     private BigDecimal channelCostPrice;
+    private Boolean active;
     private Integer sort;
     private Integer status;
     private LocalDateTime createTime;
@@ -35,6 +36,7 @@ public class ProductSupplyBindingResponse {
         response.setChannelProductId(binding.getChannelProductId());
         response.setChannelProductName(binding.getChannelProductName());
         response.setChannelCostPrice(binding.getChannelCostPrice());
+        response.setActive(Boolean.TRUE.equals(binding.getActive()));
         response.setSort(binding.getSort());
         response.setStatus(binding.getStatus());
         response.setCreateTime(binding.getCreateTime());
