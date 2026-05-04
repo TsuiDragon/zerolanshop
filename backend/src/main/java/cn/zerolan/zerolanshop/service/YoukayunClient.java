@@ -67,14 +67,14 @@ public class YoukayunClient {
                     .build();
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new RuntimeException("Youkayun order request failed with HTTP " + response.statusCode());
+                throw new RuntimeException("优卡云下单请求失败，HTTP 状态码：" + response.statusCode());
             }
             return parseResponse(response.body(), externalOrderNo);
         } catch (IOException exception) {
-            throw new RuntimeException("Youkayun order response parse failed");
+            throw new RuntimeException("优卡云下单响应解析失败");
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new RuntimeException("Youkayun order request interrupted");
+            throw new RuntimeException("优卡云下单请求被中断");
         }
     }
 
@@ -91,14 +91,14 @@ public class YoukayunClient {
                     .build();
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new RuntimeException("Youkayun balance request failed with HTTP " + response.statusCode());
+                throw new RuntimeException("优卡云余额查询请求失败，HTTP 状态码：" + response.statusCode());
             }
             return parseBalanceResponse(channel, response.body());
         } catch (IOException exception) {
-            throw new RuntimeException("Youkayun balance response parse failed");
+            throw new RuntimeException("优卡云余额响应解析失败");
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new RuntimeException("Youkayun balance request interrupted");
+            throw new RuntimeException("优卡云余额查询请求被中断");
         }
     }
 
@@ -116,14 +116,14 @@ public class YoukayunClient {
                     .build();
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new RuntimeException("Youkayun product request failed with HTTP " + response.statusCode());
+                throw new RuntimeException("优卡云商品查询请求失败，HTTP 状态码：" + response.statusCode());
             }
             return parseProductResponse(channel, channelProductId, response.body());
         } catch (IOException exception) {
-            throw new RuntimeException("Youkayun product response parse failed");
+            throw new RuntimeException("优卡云商品响应解析失败");
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new RuntimeException("Youkayun product request interrupted");
+            throw new RuntimeException("优卡云商品查询请求被中断");
         }
     }
 
@@ -149,7 +149,7 @@ public class YoukayunClient {
             try {
                 return objectMapper.writeValueAsString(value);
             } catch (IOException exception) {
-                throw new RuntimeException("Youkayun request parameter serialization failed");
+                throw new RuntimeException("优卡云请求参数序列化失败");
             }
         }
         return String.valueOf(value);
@@ -190,8 +190,7 @@ public class YoukayunClient {
         Object code = body.get("code");
         boolean success = code == null || "0".equals(String.valueOf(code)) || "200".equals(String.valueOf(code)) || "1000".equals(String.valueOf(code));
         if (!success) {
-            Object message = body.getOrDefault("message", body.getOrDefault("msg", "Youkayun order request failed"));
-            throw new RuntimeException(String.valueOf(message));
+            throw new RuntimeException("优卡云下单失败");
         }
         Object data = body.get("data");
         String channelOrderNo = null;
@@ -204,7 +203,7 @@ public class YoukayunClient {
         response.setChannelType(SupplyChannelService.TYPE_YOUKAYUN);
         response.setExternalOrderNo(externalOrderNo);
         response.setChannelOrderNo(channelOrderNo);
-        response.setMessage("Youkayun order dispatched");
+        response.setMessage("优卡云订单已提交");
         return response;
     }
 
@@ -216,15 +215,14 @@ public class YoukayunClient {
                 || "200".equals(String.valueOf(code))
                 || "1000".equals(String.valueOf(code));
         if (!success) {
-            Object message = body.getOrDefault("message", body.getOrDefault("msg", "Youkayun balance request failed"));
-            throw new RuntimeException(String.valueOf(message));
+            throw new RuntimeException("优卡云余额查询失败");
         }
         BigDecimal balance = extractBalance(body);
         SupplyChannelBalanceResponse response = new SupplyChannelBalanceResponse();
         response.setChannelId(channel.getId());
         response.setChannelType(channel.getChannelType());
         response.setBalance(balance);
-        response.setMessage("Youkayun balance queried");
+        response.setMessage("优卡云余额查询成功");
         return response;
     }
 
@@ -236,8 +234,7 @@ public class YoukayunClient {
                 || "200".equals(String.valueOf(code))
                 || "1000".equals(String.valueOf(code));
         if (!success) {
-            Object message = body.getOrDefault("message", body.getOrDefault("msg", "Youkayun product request failed"));
-            throw new RuntimeException(String.valueOf(message));
+            throw new RuntimeException("优卡云商品查询失败");
         }
         Map<?, ?> dataMap = body.get("data") instanceof Map<?, ?> map ? map : body;
         SupplyChannelProductResponse response = new SupplyChannelProductResponse();
@@ -247,7 +244,7 @@ public class YoukayunClient {
         response.setChannelProductName(toText(firstPresent(dataMap, "name", "goodsname", "goods_name", "title", "productName")));
         Object price = firstPresent(dataMap, "price", "money", "cost", "cost_price", "goodsprice", "goods_price", "amount");
         response.setChannelCostPrice(price == null ? null : toBigDecimal(price));
-        response.setMessage("Youkayun product queried");
+        response.setMessage("优卡云商品查询成功");
         return response;
     }
 
@@ -298,7 +295,7 @@ public class YoukayunClient {
             }
             return builder.toString();
         } catch (NoSuchAlgorithmException exception) {
-            throw new RuntimeException("MD5 algorithm is unavailable");
+            throw new RuntimeException("MD5 算法不可用");
         }
     }
 }

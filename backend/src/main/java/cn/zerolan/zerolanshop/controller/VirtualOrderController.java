@@ -1,11 +1,11 @@
 package cn.zerolan.zerolanshop.controller;
 
 import cn.zerolan.zerolanshop.common.Result;
-import cn.zerolan.zerolanshop.domain.dto.UserProfileResponse;
 import cn.zerolan.zerolanshop.domain.dto.VirtualOrderCreateRequest;
 import cn.zerolan.zerolanshop.domain.dto.VirtualOrderResponse;
-import cn.zerolan.zerolanshop.service.UserProfileService;
 import cn.zerolan.zerolanshop.service.VirtualOrderService;
+import cn.zerolan.zerolanshop.user.dto.UserProfileResponse;
+import cn.zerolan.zerolanshop.user.service.UserProfileService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.security.core.context.SecurityContextHolder;

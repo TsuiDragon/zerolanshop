@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, type Component } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, type Component } from 'vue'
 import {
   BarChart3,
   Banknote,
@@ -15,8 +15,10 @@ import {
   HandCoins,
   Home,
   KeyRound,
+  Mail,
   Megaphone,
   Package,
+  Phone,
   Plus,
   ReceiptText,
   Search,
@@ -33,8 +35,10 @@ import {
 
 type Page = 'admin' | 'adminAuth' | 'home' | 'userAuth'
 type AdminView = 'home' | 'product' | 'category' | 'pricingTemplate' | 'orderTemplate' | 'mediaAsset' | 'supplyChannel' | 'user' | 'order' | 'balanceRecord'
-type BuyerView = 'dashboard' | 'benefits' | 'products' | 'orders' | 'balanceRecords' | 'topUpRecords' | 'recharge'
-type AuthMode = 'login' | 'register'
+type BuyerView = 'dashboard' | 'benefits' | 'products' | 'orders' | 'balanceRecords' | 'topUpRecords' | 'recharge' | 'profile'
+type AuthMode = 'login' | 'register' | 'resetPassword'
+type LoginMethod = 'password' | 'sms'
+type SmsScene = 'REGISTER' | 'LOGIN' | 'PASSWORD_RESET'
 type PricingType = 'PERCENTAGE' | 'FIXED_AMOUNT'
 type ProductType = 'VIRTUAL' | 'CARD' | 'NORMAL'
 type SupplyCostStrategy = 'LOWEST' | 'HIGHEST'
@@ -63,7 +67,27 @@ type LoginResponse = {
 type UserProfileResponse = {
   userId: number
   username: string
+  email?: string | null
+  phone?: string | null
   balance: number
+  creditLimit?: number | string | null
+  securityDeposit?: number | string | null
+  creditRating?: string | null
+  status?: number | null
+}
+
+type PurchaseDashboardTrendPoint = {
+  date: string
+  amount: number
+  orderCount: number
+}
+
+type PurchaseDashboardResponse = {
+  todayAmount: number
+  todayOrderCount: number
+  monthAmount: number
+  monthOrderCount: number
+  trend: PurchaseDashboardTrendPoint[]
 }
 
 type AdminUserResponse = {
@@ -74,6 +98,9 @@ type AdminUserResponse = {
   nickname?: string | null
   avatar?: string | null
   balance: number
+  creditLimit?: number | string | null
+  securityDeposit?: number | string | null
+  creditRating?: string | null
   status: number
   registerIp?: string | null
   registerTime?: string
@@ -435,21 +462,38 @@ const page = computed<Page>(() => {
     path === '/finance/top-up-records' ||
     path === '/finance/recharge' ||
     path === '/orders' ||
-    path === '/order'
+    path === '/order' ||
+    path === '/users/me'
   ) return 'home'
   return 'userAuth'
 })
 
 const mode = ref<AuthMode>('login')
+const loginMethod = ref<LoginMethod>('password')
 const username = ref('')
 const password = ref('')
 const confirmPassword = ref('')
 const email = ref('')
 const phone = ref('')
+const smsCode = ref('')
+const smsSending = ref(false)
+const smsCountdown = ref(0)
+const currentUserPhone = ref('')
+const currentUserEmail = ref('')
+const profilePhone = ref('')
+const profilePhoneCode = ref('')
+const profileMessage = ref('')
+const profileSaving = ref(false)
+const profileSmsSending = ref(false)
+const profileSmsCountdown = ref(0)
+const profilePhoneEditorOpen = ref(false)
 const remember = ref(localStorage.getItem('zerolanshop_remember') === 'true')
 const loading = ref(false)
 const message = ref('')
 const currentUsername = ref(readStoredUsername())
+const userMenuOpen = ref(false)
+let smsCountdownTimer: number | null = null
+let profileSmsCountdownTimer: number | null = null
 
 const adminUsername = ref('')
 const adminPassword = ref('')
@@ -592,6 +636,19 @@ const buyerCategoryModalDragging = ref(false)
 const buyerCategoryPickerOpen = ref(false)
 const activeBuyerParentCategoryId = ref<number | null>(null)
 const currentBalance = ref(0)
+const currentCreditLimit = ref(0)
+const currentSecurityDeposit = ref(0)
+const currentCreditRating = ref('')
+const currentUserStatus = ref<number | null>(null)
+const purchaseDashboard = ref<PurchaseDashboardResponse>({
+  todayAmount: 0,
+  todayOrderCount: 0,
+  monthAmount: 0,
+  monthOrderCount: 0,
+  trend: [],
+})
+const purchaseDashboardLoading = ref(false)
+const purchaseDashboardMessage = ref('')
 const purchaseModalOpen = ref(false)
 const purchasingProduct = ref<ProductResponse | null>(null)
 const purchaseRechargeAccount = ref('')
@@ -600,6 +657,8 @@ const purchasePaymentMethod = ref<'BALANCE'>('BALANCE')
 const purchaseConfirmed = ref(false)
 const purchaseSubmitting = ref(false)
 const purchaseMessage = ref('')
+const purchaseSuccessModalOpen = ref(false)
+const purchaseSuccessMessage = ref('')
 const buyerOrders = ref<VirtualOrderResponse[]>([])
 const buyerOrderLoading = ref(false)
 const buyerOrderMessage = ref('')
@@ -656,6 +715,14 @@ const balanceAdjustSaving = ref(false)
 const balanceAdjustForm = reactive({
   amount: 0,
   remark: '',
+})
+const creditEditModalOpen = ref(false)
+const creditEditUser = ref<AdminUserResponse | null>(null)
+const creditEditSaving = ref(false)
+const creditEditForm = reactive({
+  creditLimit: 0,
+  securityDeposit: 0,
+  creditRating: '',
 })
 
 const adminMenus = reactive<AdminMenu[]>([
@@ -832,11 +899,148 @@ const canSubmitPurchase = computed(() =>
       !purchaseSubmitting.value,
   ),
 )
+const purchaseMetricCards = computed(() => [
+  { label: '今日采购金额（元）', value: formatMoney(purchaseDashboard.value.todayAmount) },
+  { label: '今日订单数（笔）', value: formatCount(purchaseDashboard.value.todayOrderCount) },
+  { label: '本月采购金额（元）', value: formatMoney(purchaseDashboard.value.monthAmount) },
+  { label: '本月订单数（笔）', value: formatCount(purchaseDashboard.value.monthOrderCount) },
+])
+const purchaseTrendPoints = computed(() => normalizeTrend(purchaseDashboard.value.trend))
+const purchaseTrendAmountLabels = computed(() => purchaseTrendPoints.value.map((point) => formatCompactMoney(point.amount)))
+const purchaseTrendChart = computed(() => buildPurchaseTrendChart())
+const purchaseAmountPath = computed(() => buildSmoothPath(purchaseTrendChart.value.points.map((point) => ({ x: point.x, y: point.amountY }))))
+const purchaseAmountAreaPath = computed(() => {
+  const points = purchaseTrendChart.value.points
+  if (!points.length || !purchaseAmountPath.value) return ''
+  const baseline = purchaseTrendChart.value.baseline
+  return `${purchaseAmountPath.value} L ${points[points.length - 1].x.toFixed(1)} ${baseline} L ${points[0].x.toFixed(1)} ${baseline} Z`
+})
+const activePurchaseTooltip = ref<{
+  point: PurchaseDashboardTrendPoint
+  boxX: number
+  boxY: number
+  textX: number
+  valueX: number
+  dotX: number
+} | null>(null)
+
+function normalizeTrend(points: PurchaseDashboardTrendPoint[]) {
+  if (points.length === 7) return points
+  const today = new Date()
+  const byDate = new Map(points.map((point) => [point.date, point]))
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(today)
+    date.setDate(today.getDate() - (6 - index))
+    const key = formatLocalDateKey(date)
+    return byDate.get(key) || { date: key, amount: 0, orderCount: 0 }
+  })
+}
+
+function formatLocalDateKey(date: Date) {
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+function buildPurchaseTrendChart() {
+  const points = purchaseTrendPoints.value
+  const width = 900
+  const height = 280
+  const paddingX = 58
+  const paddingTop = 28
+  const baseline = 222
+  const amountMax = niceChartMax(Math.max(...points.map((point) => Number(point.amount) || 0), 0))
+  const orderMax = niceChartMax(Math.max(...points.map((point) => Number(point.orderCount) || 0), 0), 1)
+  const step = points.length === 1 ? 0 : (width - paddingX * 2) / (points.length - 1)
+  const chartHeight = baseline - paddingTop
+  return {
+    width,
+    height,
+    baseline,
+    amountMax,
+    orderMax,
+    leftLabels: [amountMax, amountMax / 2, 0].map(formatCompactMoney),
+    rightLabels: [orderMax, orderMax / 2, 0].map((value) => `${Math.round(value)}单`),
+    points: points.map((point, index) => {
+      const x = paddingX + step * index
+      const amount = Number(point.amount) || 0
+      const orderCount = Number(point.orderCount) || 0
+      const amountY = baseline - (amount / amountMax) * chartHeight
+      const orderHeight = Math.max(orderCount > 0 ? 8 : 0, (orderCount / orderMax) * chartHeight)
+      const hoverWidth = Math.max(step || 84, 84)
+      return {
+        ...point,
+        x,
+        amountY,
+        orderY: baseline - orderHeight,
+        orderHeight,
+        barX: x - 12,
+        hoverX: Math.max(0, x - hoverWidth / 2),
+        hoverWidth,
+      }
+    }),
+  }
+}
+
+function movePurchaseTooltip(event: MouseEvent, point: PurchaseDashboardTrendPoint) {
+  const svg = (event.currentTarget as SVGElement).ownerSVGElement
+  if (!svg) return
+
+  const rect = svg.getBoundingClientRect()
+  const svgX = ((event.clientX - rect.left) / rect.width) * 900
+  const svgY = ((event.clientY - rect.top) / rect.height) * 310
+  const boxWidth = 132
+  const boxHeight = 74
+  const boxX = clamp(svgX + 14, 58, 900 - boxWidth - 18)
+  const boxY = clamp(svgY - boxHeight - 12, 18, 310 - boxHeight - 12)
+
+  activePurchaseTooltip.value = {
+    point,
+    boxX,
+    boxY,
+    textX: boxX + 14,
+    valueX: boxX + 56,
+    dotX: boxX + 20,
+  }
+}
+
+function hidePurchaseTooltip() {
+  activePurchaseTooltip.value = null
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max)
+}
+
+function buildSmoothPath(points: { x: number; y: number }[]) {
+  if (!points.length) return ''
+  if (points.length === 1) return `M ${points[0].x.toFixed(1)} ${points[0].y.toFixed(1)}`
+  return points.reduce((path, point, index) => {
+    if (index === 0) return `M ${point.x.toFixed(1)} ${point.y.toFixed(1)}`
+    const previous = points[index - 1]
+    const controlX = (previous.x + point.x) / 2
+    return `${path} C ${controlX.toFixed(1)} ${previous.y.toFixed(1)}, ${controlX.toFixed(1)} ${point.y.toFixed(1)}, ${point.x.toFixed(1)} ${point.y.toFixed(1)}`
+  }, '')
+}
+
+function niceChartMax(value: number, minimum = 10) {
+  const raw = Math.max(value, minimum)
+  const magnitude = 10 ** Math.floor(Math.log10(raw))
+  const normalized = raw / magnitude
+  const nice = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10
+  return nice * magnitude
+}
 
 onMounted(() => {
   normalizeRoute()
   syncAdminViewFromPath()
   syncBuyerView()
+  document.addEventListener('click', closeUserMenu)
+})
+
+onUnmounted(() => {
+  if (smsCountdownTimer != null) window.clearInterval(smsCountdownTimer)
+  if (profileSmsCountdownTimer != null) window.clearInterval(profileSmsCountdownTimer)
+  document.removeEventListener('click', closeUserMenu)
 })
 
 function normalizePath(path: string) {
@@ -874,6 +1078,7 @@ window.addEventListener('popstate', () => {
 })
 
 function navigate(path: string) {
+  userMenuOpen.value = false
   window.history.pushState({}, '', path)
   currentPath.value = path
   normalizeRoute()
@@ -881,23 +1086,77 @@ function navigate(path: string) {
   syncBuyerView()
 }
 
+function toggleUserMenu() {
+  userMenuOpen.value = !userMenuOpen.value
+}
+
+function closeUserMenu() {
+  userMenuOpen.value = false
+}
+
+function logoutUser() {
+  localStorage.removeItem('zerolanshop_token')
+  localStorage.removeItem('zerolanshop_user')
+  sessionStorage.removeItem('zerolanshop_token')
+  sessionStorage.removeItem('zerolanshop_user')
+  currentUsername.value = readStoredUsername()
+  userMenuOpen.value = false
+  navigate('/login')
+}
+
 function switchMode(nextMode: AuthMode) {
   mode.value = nextMode
   message.value = ''
   password.value = ''
   confirmPassword.value = ''
+  smsCode.value = ''
+  if (nextMode === 'login') loginMethod.value = 'password'
+}
+
+function switchLoginMethod(nextMethod: LoginMethod) {
+  loginMethod.value = nextMethod
+  message.value = ''
+  password.value = ''
+  smsCode.value = ''
 }
 
 async function handleUserSubmit() {
-  if (!username.value.trim() || !password.value || loading.value) return
+  if (loading.value) return
 
   loading.value = true
   message.value = ''
 
   try {
-    if (mode.value === 'register') validateRegisterForm()
+    if (mode.value === 'resetPassword') {
+      validatePasswordResetForm()
+      await requestJson<void>('/api/auth/password-reset', {
+        method: 'POST',
+        auth: false,
+        body: {
+          phone: phone.value.trim(),
+          code: smsCode.value.trim(),
+          password: password.value,
+          confirmPassword: confirmPassword.value,
+        },
+      })
+      message.value = '密码已重置，请返回登录'
+      password.value = ''
+      confirmPassword.value = ''
+      smsCode.value = ''
+      mode.value = 'login'
+      loginMethod.value = 'password'
+      return
+    }
 
-    const result = await requestJson<LoginResponse>(mode.value === 'register' ? '/api/auth/register' : '/api/auth/sessions', {
+    if (mode.value === 'register') validateRegisterForm()
+    if (mode.value === 'login' && loginMethod.value === 'sms') validateSmsLoginForm()
+
+    const endpoint = mode.value === 'register'
+      ? '/api/auth/register'
+      : loginMethod.value === 'sms'
+        ? '/api/auth/sms-sessions'
+        : '/api/auth/sessions'
+    const result = await requestJson<LoginResponse>(endpoint, {
       method: 'POST',
       auth: false,
       body:
@@ -906,9 +1165,14 @@ async function handleUserSubmit() {
               username: username.value.trim(),
               password: password.value,
               confirmPassword: confirmPassword.value,
-              email: email.value.trim() || null,
-              phone: phone.value.trim() || null,
+              phone: phone.value.trim(),
+              phoneCode: smsCode.value.trim(),
             }
+          : loginMethod.value === 'sms'
+            ? {
+                phone: phone.value.trim(),
+                code: smsCode.value.trim(),
+              }
           : {
               username: username.value.trim(),
               password: password.value,
@@ -929,10 +1193,68 @@ async function handleUserSubmit() {
 }
 
 function validateRegisterForm() {
+  validatePhone(phone.value)
+  if (!smsCode.value.trim()) throw new Error('请输入短信验证码')
   if (username.value.trim().length < 3) throw new Error('用户名至少 3 个字符')
   if (password.value.length < 6) throw new Error('密码至少 6 个字符')
   if (password.value !== confirmPassword.value) throw new Error('两次输入的密码不一致')
-  if (!email.value.trim() && !phone.value.trim()) throw new Error('请填写手机号或邮箱')
+}
+
+function validateSmsLoginForm() {
+  validatePhone(phone.value)
+  if (!smsCode.value.trim()) throw new Error('请输入短信验证码')
+}
+
+function validatePasswordResetForm() {
+  validatePhone(phone.value)
+  if (!smsCode.value.trim()) throw new Error('请输入短信验证码')
+  if (password.value.length < 6) throw new Error('密码至少 6 个字符')
+  if (password.value !== confirmPassword.value) throw new Error('两次输入的密码不一致')
+}
+
+function validatePhone(value: string) {
+  if (!/^1[3-9]\d{9}$/.test(value.trim())) throw new Error('请输入正确的手机号')
+}
+
+function smsScene(): SmsScene {
+  if (mode.value === 'register') return 'REGISTER'
+  if (mode.value === 'resetPassword') return 'PASSWORD_RESET'
+  return 'LOGIN'
+}
+
+async function sendAuthSmsCode() {
+  if (smsSending.value || smsCountdown.value > 0) return
+  message.value = ''
+  try {
+    validatePhone(phone.value)
+    smsSending.value = true
+    await requestJson<void>('/api/auth/sms-codes', {
+      method: 'POST',
+      auth: false,
+      body: {
+        phone: phone.value.trim(),
+        scene: smsScene(),
+      },
+    })
+    startSmsCountdown()
+    message.value = '验证码已发送'
+  } catch (error) {
+    message.value = error instanceof Error ? error.message : '验证码发送失败'
+  } finally {
+    smsSending.value = false
+  }
+}
+
+function startSmsCountdown() {
+  smsCountdown.value = 60
+  if (smsCountdownTimer != null) window.clearInterval(smsCountdownTimer)
+  smsCountdownTimer = window.setInterval(() => {
+    smsCountdown.value -= 1
+    if (smsCountdown.value <= 0 && smsCountdownTimer != null) {
+      window.clearInterval(smsCountdownTimer)
+      smsCountdownTimer = null
+    }
+  }, 1000)
 }
 
 function switchAdminView(view: AdminView) {
@@ -1027,11 +1349,17 @@ function syncBuyerView() {
   if (!buyerProducts.value.length && !buyerStoreLoading.value) {
     loadBuyerStoreData()
   }
+  if (buyerView.value === 'dashboard' && !purchaseDashboardLoading.value) {
+    loadPurchaseDashboard()
+  }
   if (buyerView.value === 'orders' && !buyerOrders.value.length && !buyerOrderLoading.value) {
     loadBuyerOrders()
   }
   if (buyerView.value === 'balanceRecords' && !buyerBalanceRecords.value.length && !buyerBalanceRecordLoading.value) {
     loadBuyerBalanceRecords()
+  }
+  if (buyerView.value === 'profile') {
+    loadCurrentUserProfile()
   }
   if (currentBalance.value === 0) {
     loadCurrentUserProfile()
@@ -1060,6 +1388,29 @@ function switchBuyerFinanceView(view: Extract<BuyerView, 'balanceRecords' | 'top
   switchBuyerView(view)
 }
 
+function maskPhone(value: string) {
+  const normalized = value.trim()
+  if (!/^1[3-9]\d{9}$/.test(normalized)) return normalized || '未绑定'
+  return `${normalized.slice(0, 3)}****${normalized.slice(-4)}`
+}
+
+function openProfilePhoneModal() {
+  profilePhone.value = ''
+  profilePhoneCode.value = ''
+  profileMessage.value = ''
+  profilePhoneEditorOpen.value = true
+}
+
+function closeProfilePhoneModal() {
+  profilePhoneEditorOpen.value = false
+  profilePhoneCode.value = ''
+  profileMessage.value = ''
+}
+
+function isProfilePhoneUnchanged() {
+  return Boolean(currentUserPhone.value.trim()) && profilePhone.value.trim() === currentUserPhone.value.trim()
+}
+
 function getBuyerPath(view: BuyerView) {
   if (view === 'benefits') return '/purchase/benefits'
   if (view === 'products') return '/purchase/products'
@@ -1067,6 +1418,7 @@ function getBuyerPath(view: BuyerView) {
   if (view === 'balanceRecords') return '/finance/balance-records'
   if (view === 'topUpRecords') return '/finance/top-up-records'
   if (view === 'recharge') return '/finance/recharge'
+  if (view === 'profile') return '/users/me'
   return '/index'
 }
 
@@ -1078,6 +1430,7 @@ function getBuyerViewFromPath(path: string): BuyerView {
   if (normalized === '/finance/balance-records') return 'balanceRecords'
   if (normalized === '/finance/top-up-records') return 'topUpRecords'
   if (normalized === '/finance/recharge') return 'recharge'
+  if (normalized === '/users/me') return 'profile'
   return 'dashboard'
 }
 
@@ -1198,10 +1551,105 @@ async function loadCurrentUserProfile() {
   try {
     const result = await requestUserJson<UserProfileResponse>('/api/users/me')
     currentBalance.value = Number(result.data.balance || 0)
+    currentCreditLimit.value = Number(result.data.creditLimit || 0)
+    currentSecurityDeposit.value = Number(result.data.securityDeposit || 0)
+    currentCreditRating.value = result.data.creditRating || ''
+    currentUserStatus.value = result.data.status ?? null
     currentUsername.value = result.data.username || currentUsername.value
+    currentUserPhone.value = result.data.phone || ''
+    currentUserEmail.value = result.data.email || ''
+    if (!profilePhone.value) profilePhone.value = result.data.phone || ''
   } catch {
     currentBalance.value = 0
+    currentCreditLimit.value = 0
+    currentSecurityDeposit.value = 0
+    currentCreditRating.value = ''
+    currentUserStatus.value = null
   }
+}
+
+async function loadPurchaseDashboard() {
+  purchaseDashboardLoading.value = true
+  purchaseDashboardMessage.value = ''
+  try {
+    const result = await requestUserJson<PurchaseDashboardResponse>('/api/dashboard/purchase')
+    purchaseDashboard.value = {
+      todayAmount: Number(result.data.todayAmount || 0),
+      todayOrderCount: Number(result.data.todayOrderCount || 0),
+      monthAmount: Number(result.data.monthAmount || 0),
+      monthOrderCount: Number(result.data.monthOrderCount || 0),
+      trend: (result.data.trend || []).map((point) => ({
+        date: point.date,
+        amount: Number(point.amount || 0),
+        orderCount: Number(point.orderCount || 0),
+      })),
+    }
+  } catch (error) {
+    purchaseDashboardMessage.value = error instanceof Error ? error.message : '采购数据加载失败'
+  } finally {
+    purchaseDashboardLoading.value = false
+  }
+}
+
+async function sendProfilePhoneCode() {
+  if (profileSmsSending.value || profileSmsCountdown.value > 0) return
+  profileMessage.value = ''
+  try {
+    validatePhone(profilePhone.value)
+    if (isProfilePhoneUnchanged()) throw new Error('新手机号不能与当前手机号相同')
+    profileSmsSending.value = true
+    await requestUserJson<void>('/api/users/me/phone/sms-codes', {
+      method: 'POST',
+      body: {
+        phone: profilePhone.value.trim(),
+      },
+    })
+    startProfileSmsCountdown()
+    profileMessage.value = '验证码已发送'
+  } catch (error) {
+    profileMessage.value = error instanceof Error ? error.message : '验证码发送失败'
+  } finally {
+    profileSmsSending.value = false
+  }
+}
+
+async function updateProfilePhone() {
+  if (profileSaving.value) return
+  profileMessage.value = ''
+  try {
+    validatePhone(profilePhone.value)
+    if (isProfilePhoneUnchanged()) throw new Error('新手机号不能与当前手机号相同')
+    if (!profilePhoneCode.value.trim()) throw new Error('请输入短信验证码')
+    profileSaving.value = true
+    const result = await requestUserJson<UserProfileResponse>('/api/users/me/phone', {
+      method: 'PATCH',
+      body: {
+        phone: profilePhone.value.trim(),
+        code: profilePhoneCode.value.trim(),
+      },
+    })
+    currentUserPhone.value = result.data.phone || ''
+    profilePhone.value = result.data.phone || ''
+    profilePhoneCode.value = ''
+    closeProfilePhoneModal()
+    profileMessage.value = '手机号已更新'
+  } catch (error) {
+    profileMessage.value = error instanceof Error ? error.message : '手机号更新失败'
+  } finally {
+    profileSaving.value = false
+  }
+}
+
+function startProfileSmsCountdown() {
+  profileSmsCountdown.value = 60
+  if (profileSmsCountdownTimer != null) window.clearInterval(profileSmsCountdownTimer)
+  profileSmsCountdownTimer = window.setInterval(() => {
+    profileSmsCountdown.value -= 1
+    if (profileSmsCountdown.value <= 0 && profileSmsCountdownTimer != null) {
+      window.clearInterval(profileSmsCountdownTimer)
+      profileSmsCountdownTimer = null
+    }
+  }, 1000)
 }
 
 function openPurchaseModal(product: ProductResponse) {
@@ -1211,6 +1659,8 @@ function openPurchaseModal(product: ProductResponse) {
   purchasePaymentMethod.value = 'BALANCE'
   purchaseConfirmed.value = false
   purchaseMessage.value = ''
+  purchaseSuccessModalOpen.value = false
+  purchaseSuccessMessage.value = ''
   purchaseModalOpen.value = true
   loadCurrentUserProfile()
 }
@@ -1239,6 +1689,7 @@ async function submitPurchase() {
   if (!purchasingProduct.value || !canSubmitPurchase.value) return
   purchaseSubmitting.value = true
   purchaseMessage.value = ''
+  purchaseSuccessMessage.value = ''
   try {
     const result = await requestUserJson<VirtualOrderResponse[]>('/api/orders', {
       method: 'POST',
@@ -1249,14 +1700,20 @@ async function submitPurchase() {
         paymentMethod: purchasePaymentMethod.value,
       },
     })
-    purchaseMessage.value = `下单成功，共创建 ${result.data.length} 个订单`
+    purchaseSuccessMessage.value = `支付成功，已创建 ${result.data.length} 个订单`
     purchaseModalOpen.value = false
-    await Promise.all([loadCurrentUserProfile(), loadBuyerOrders()])
+    purchaseSuccessModalOpen.value = true
+    await Promise.all([loadCurrentUserProfile(), loadBuyerOrders(), loadPurchaseDashboard()])
   } catch (error) {
     purchaseMessage.value = error instanceof Error ? error.message : '下单失败'
   } finally {
     purchaseSubmitting.value = false
   }
+}
+
+function viewPurchaseOrders() {
+  purchaseSuccessModalOpen.value = false
+  navigate('/purchase/orders')
 }
 
 async function loadBuyerOrders() {
@@ -1460,6 +1917,51 @@ async function adjustAdminUserBalance() {
     adminUserMessage.value = error instanceof Error ? error.message : '余额调整失败'
   } finally {
     balanceAdjustSaving.value = false
+  }
+}
+
+function openCreditEditModal(user: AdminUserResponse) {
+  creditEditUser.value = user
+  creditEditForm.creditLimit = Number(user.creditLimit || 0)
+  creditEditForm.securityDeposit = Number(user.securityDeposit || 0)
+  creditEditForm.creditRating = user.creditRating || 'A'
+  adminUserMessage.value = ''
+  creditEditModalOpen.value = true
+}
+
+async function saveAdminUserCredit() {
+  if (!creditEditUser.value) return
+  const creditLimit = Number(creditEditForm.creditLimit)
+  const securityDeposit = Number(creditEditForm.securityDeposit)
+  if (!Number.isFinite(creditLimit) || creditLimit < 0) {
+    adminUserMessage.value = '请输入正确的授信额度'
+    return
+  }
+  if (!Number.isFinite(securityDeposit) || securityDeposit < 0) {
+    adminUserMessage.value = '请输入正确的保证金'
+    return
+  }
+  if (!creditEditForm.creditRating.trim()) {
+    adminUserMessage.value = '请填写授信评级'
+    return
+  }
+  adminUserMessage.value = ''
+  creditEditSaving.value = true
+  try {
+    await requestJson<AdminUserResponse>(`/api/admin/users/${creditEditUser.value.id}/credit`, {
+      method: 'PATCH',
+      body: {
+        creditLimit,
+        securityDeposit,
+        creditRating: creditEditForm.creditRating.trim(),
+      },
+    })
+    creditEditModalOpen.value = false
+    await loadAdminUsers()
+  } catch (error) {
+    adminUserMessage.value = error instanceof Error ? error.message : '授信信息保存失败'
+  } finally {
+    creditEditSaving.value = false
   }
 }
 
@@ -2410,6 +2912,18 @@ function formatMoney(value?: number | string | null) {
   return Number.isFinite(amount) ? `¥${amount.toFixed(2)}` : String(value)
 }
 
+function formatCount(value?: number | string | null) {
+  const count = Number(value || 0)
+  return Number.isFinite(count) ? count.toLocaleString('zh-CN') : '0'
+}
+
+function formatCompactMoney(value?: number | string | null) {
+  const amount = Number(value || 0)
+  if (!Number.isFinite(amount)) return '¥0'
+  if (amount >= 10000) return `¥${(amount / 10000).toFixed(1)}万`
+  return `¥${amount.toFixed(0)}`
+}
+
 async function loadSupplyChannels() {
   supplyChannelLoading.value = true
   supplyChannelMessage.value = ''
@@ -2715,28 +3229,38 @@ async function requestForm<T>(
         <button type="button" :class="{ active: mode === 'register' }" @click="switchMode('register')">注册</button>
       </div>
 
+      <div v-if="mode === 'login'" class="auth-tabs compact">
+        <button type="button" :class="{ active: loginMethod === 'password' }" @click="switchLoginMethod('password')">密码登录</button>
+        <button type="button" :class="{ active: loginMethod === 'sms' }" @click="switchLoginMethod('sms')">短信登录</button>
+      </div>
+
       <form class="login-form" @submit.prevent="handleUserSubmit">
-        <label>
+        <label v-if="mode !== 'resetPassword' && loginMethod === 'password'">
           <span>登录账号</span>
           <input v-model="username" autocomplete="username" placeholder="请输入账号" type="text" />
         </label>
 
-        <label v-if="mode === 'register'">
-          <span>邮箱</span>
-          <input v-model="email" autocomplete="email" placeholder="请输入邮箱" type="email" />
-        </label>
-
-        <label v-if="mode === 'register'">
+        <label v-if="mode !== 'login' || loginMethod === 'sms'">
           <span>手机号</span>
           <input v-model="phone" autocomplete="tel" placeholder="请输入手机号" type="tel" />
         </label>
 
-        <label>
+        <label v-if="mode !== 'login' || loginMethod === 'sms'" class="sms-code-row">
+          <span>短信验证码</span>
+          <div>
+            <input v-model="smsCode" inputmode="numeric" maxlength="8" placeholder="请输入验证码" type="text" />
+            <button type="button" :disabled="smsSending || smsCountdown > 0" @click="sendAuthSmsCode">
+              {{ smsCountdown > 0 ? `${smsCountdown}s` : smsSending ? '发送中' : '发送验证码' }}
+            </button>
+          </div>
+        </label>
+
+        <label v-if="mode !== 'login' || loginMethod === 'password'">
           <span>登录密码</span>
           <input v-model="password" autocomplete="current-password" placeholder="请输入密码" type="password" />
         </label>
 
-        <label v-if="mode === 'register'">
+        <label v-if="mode === 'register' || mode === 'resetPassword'">
           <span>确认密码</span>
           <input v-model="confirmPassword" autocomplete="new-password" placeholder="请再次输入密码" type="password" />
         </label>
@@ -2746,12 +3270,12 @@ async function requestForm<T>(
             <input v-model="remember" type="checkbox" />
             <span>记住登录状态</span>
           </label>
-          <a href="#" @click.prevent>忘记密码?</a>
+          <a href="#" @click.prevent="switchMode('resetPassword')">忘记密码?</a>
         </div>
 
         <p v-if="message" class="form-message">{{ message }}</p>
-        <button type="submit" :disabled="loading || !username.trim() || !password">
-          {{ loading ? '处理中...' : mode === 'register' ? '注册并进入系统' : '登录采购系统' }}
+        <button type="submit" :disabled="loading">
+          {{ loading ? '处理中...' : mode === 'register' ? '注册并进入系统' : mode === 'resetPassword' ? '重置密码' : '登录采购系统' }}
         </button>
       </form>
 
@@ -2802,7 +3326,7 @@ async function requestForm<T>(
         <button type="button"><CreditCard :size="20" />卡密中心</button>
         <button type="button"><BarChart3 :size="20" />报表中心</button>
         <button type="button"><Package :size="20" />合同管理</button>
-        <button type="button"><UserRound :size="20" />个人中心</button>
+        <button :class="{ active: buyerView === 'profile' }" type="button" @click="switchBuyerView('profile')"><UserRound :size="20" />个人中心</button>
       </nav>
     </aside>
 
@@ -2813,14 +3337,23 @@ async function requestForm<T>(
         <h1 v-else-if="buyerView === 'balanceRecords'">余额明细</h1>
         <h1 v-else-if="buyerView === 'topUpRecords'">加款记录</h1>
         <h1 v-else-if="buyerView === 'recharge'">余额充值</h1>
+        <h1 v-else-if="buyerView === 'profile'">个人中心</h1>
         <h1 v-else>采购中心</h1>
         <div class="admin-user">
           <button class="icon-button" type="button" aria-label="通知">
             <Bell :size="20" />
             <span></span>
           </button>
-          <div class="avatar light"><UserRound :size="18" /></div>
-          <strong>{{ currentUsername }}</strong>
+          <div class="user-menu" @click.stop>
+            <button class="user-menu-trigger" type="button" :aria-expanded="userMenuOpen" @click="toggleUserMenu">
+              <span class="avatar light"><UserRound :size="18" /></span>
+              <strong>{{ currentUsername }}</strong>
+              <ChevronDown :size="16" />
+            </button>
+            <div v-if="userMenuOpen" class="user-menu-panel">
+              <button type="button" @click="logoutUser">退出登录</button>
+            </div>
+          </div>
         </div>
       </header>
 
@@ -3100,6 +3633,47 @@ async function requestForm<T>(
           <p v-if="buyerBalanceRecordLoading" class="toolbar-note">正在加载余额明细...</p>
         </section>
 
+        <section v-else-if="buyerView === 'profile'" class="buyer-store-view profile-view">
+          <div class="profile-card">
+            <header class="profile-card-head">
+              <span class="profile-title-icon"><Settings :size="20" /></span>
+              <h2>账户设置</h2>
+            </header>
+
+            <div class="profile-setting-list">
+              <div class="profile-setting-row">
+                <span class="profile-row-icon"><UserRound :size="22" /></span>
+                <div>
+                  <span class="profile-row-label">账号</span>
+                  <span class="profile-row-value">{{ currentUsername }}</span>
+                </div>
+                <span class="profile-row-action muted"></span>
+              </div>
+
+              <div class="profile-setting-row">
+                <span class="profile-row-icon"><Mail :size="22" /></span>
+                <div>
+                  <span class="profile-row-label">邮箱</span>
+                  <span class="profile-row-value">{{ currentUserEmail || '未绑定' }}</span>
+                </div>
+                <button class="profile-row-action" type="button">修改</button>
+              </div>
+
+              <div class="profile-setting-row">
+                <span class="profile-row-icon"><Phone :size="22" /></span>
+                <div>
+                  <span class="profile-row-label">手机号</span>
+                  <span class="profile-row-value">{{ maskPhone(currentUserPhone) }}</span>
+                </div>
+                <button class="profile-row-action" type="button" @click="openProfilePhoneModal">
+                  修改
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </section>
+
         <section v-else-if="buyerView === 'topUpRecords' || buyerView === 'recharge'" class="buyer-store-view">
           <div class="empty-row">{{ buyerView === 'topUpRecords' ? '加款记录' : '余额充值' }}功能正在完善中</div>
         </section>
@@ -3134,30 +3708,139 @@ async function requestForm<T>(
           </div>
         </section>
 
+        <div v-if="profilePhoneEditorOpen" class="modal-mask" role="dialog" aria-modal="true">
+          <form class="category-modal profile-phone-modal" @submit.prevent="updateProfilePhone">
+            <header>
+              <h2>修改手机号</h2>
+              <button type="button" aria-label="关闭" @click="closeProfilePhoneModal"><X :size="18" /></button>
+            </header>
+
+            <label>
+              <span>{{ currentUserPhone ? '新手机号' : '手机号' }}</span>
+              <input v-model="profilePhone" autocomplete="tel" placeholder="请输入手机号" type="tel" />
+            </label>
+
+            <label class="sms-code-row">
+              <span>短信验证码</span>
+              <div>
+                <input v-model="profilePhoneCode" inputmode="numeric" maxlength="8" placeholder="请输入验证码" type="text" />
+                <button type="button" :disabled="profileSmsSending || profileSmsCountdown > 0 || isProfilePhoneUnchanged()" @click="sendProfilePhoneCode">
+                  {{ profileSmsCountdown > 0 ? `${profileSmsCountdown}s` : profileSmsSending ? '发送中' : '发送验证码' }}
+                </button>
+              </div>
+            </label>
+
+            <p v-if="profileMessage" class="form-message">{{ profileMessage }}</p>
+
+            <footer>
+              <button class="soft-action" type="button" @click="closeProfilePhoneModal">取消</button>
+              <button class="primary-action" type="submit" :disabled="profileSaving">{{ profileSaving ? '保存中...' : '保存手机号' }}</button>
+            </footer>
+          </form>
+        </div>
+
         <section v-if="buyerView === 'dashboard'" class="buyer-grid">
           <article class="buyer-chart-card">
-            <h2>采购数据概览</h2>
+            <header class="buyer-chart-head">
+              <h2>采购数据概览</h2>
+              <button class="icon-action" type="button" title="刷新" :disabled="purchaseDashboardLoading" @click="loadPurchaseDashboard">
+                <TrendingUp :size="18" />
+              </button>
+            </header>
             <div class="buyer-metrics">
-              <span><small>本月采购额（元）</small><strong>￥58,790</strong></span>
-              <span><small>交易订单（笔）</small><strong>127</strong></span>
-              <span><small>待支付（元）</small><strong>￥12,450</strong></span>
-              <span><small>待收货（单）</small><strong>23</strong></span>
+              <span v-for="metric in purchaseMetricCards" :key="metric.label">
+                <small>{{ metric.label }}</small>
+                <strong>{{ metric.value }}</strong>
+              </span>
             </div>
-            <div class="fake-chart">
-              <svg viewBox="0 0 900 260" role="img" aria-label="采购趋势">
-                <path d="M0 190 C80 185 70 90 150 92 C250 96 250 150 330 142 C430 130 405 55 500 62 C610 70 560 145 650 140 C740 135 700 35 800 40 C850 42 860 82 900 86" />
+            <div class="purchase-chart-legend">
+              <span><i class="amount"></i>采购金额</span>
+              <span><i class="orders"></i>订单数</span>
+            </div>
+            <div class="fake-chart purchase-trend-chart">
+              <div class="chart-axis left">
+                <span v-for="label in purchaseTrendChart.leftLabels" :key="`amount-${label}`">{{ label }}</span>
+              </div>
+              <div class="chart-axis right">
+                <span v-for="label in purchaseTrendChart.rightLabels" :key="`orders-${label}`">{{ label }}</span>
+              </div>
+              <svg viewBox="0 0 900 310" role="img" aria-label="最近七天采购金额和订单数趋势">
+                <g class="chart-grid-lines">
+                  <line x1="58" x2="842" y1="28" y2="28" />
+                  <line x1="58" x2="842" y1="125" y2="125" />
+                  <line x1="58" x2="842" y1="222" y2="222" />
+                </g>
+                <g class="order-bars">
+                  <rect
+                    v-for="point in purchaseTrendChart.points"
+                    :key="`${point.date}-bar`"
+                    :x="point.barX"
+                    :y="point.orderY"
+                    width="24"
+                    :height="point.orderHeight"
+                    rx="6"
+                  />
+                </g>
+                <path v-if="purchaseAmountAreaPath" class="amount-area" :d="purchaseAmountAreaPath" />
+                <path v-if="purchaseAmountPath" class="amount-line" :d="purchaseAmountPath" />
+                <g class="amount-dots">
+                  <g
+                    v-for="point in purchaseTrendChart.points"
+                    :key="`${point.date}-dot`"
+                    class="trend-point"
+                  >
+                    <rect
+                      class="hit-area"
+                      :x="point.hoverX"
+                      y="20"
+                      :width="point.hoverWidth"
+                      height="270"
+                      @mousemove="movePurchaseTooltip($event, point)"
+                      @mouseleave="hidePurchaseTooltip"
+                    />
+                    <line class="hover-guide" :x1="point.x" :x2="point.x" y1="28" y2="222" />
+                    <circle class="visible-dot" :cx="point.x" :cy="point.amountY" r="4" />
+                  </g>
+                </g>
+                <g class="chart-bottom-labels">
+                  <g
+                    v-for="point in purchaseTrendChart.points"
+                    :key="`${point.date}-axis`"
+                    :transform="`translate(${point.x}, 250)`"
+                  >
+                    <text class="axis-date" y="0">{{ point.date.slice(5) }}</text>
+                    <text class="axis-amount" y="17">{{ formatCompactMoney(point.amount) }}</text>
+                    <text class="axis-orders" y="34">{{ formatCount(point.orderCount) }}单</text>
+                  </g>
+                </g>
+                <g v-if="activePurchaseTooltip" class="point-tooltip">
+                  <rect :x="activePurchaseTooltip.boxX" :y="activePurchaseTooltip.boxY" width="132" height="74" rx="8" />
+                  <text class="tooltip-date" :x="activePurchaseTooltip.textX" :y="activePurchaseTooltip.boxY + 22">
+                    {{ activePurchaseTooltip.point.date }}
+                  </text>
+                  <circle class="tooltip-dot amount" :cx="activePurchaseTooltip.dotX" :cy="activePurchaseTooltip.boxY + 43" r="4" />
+                  <text class="tooltip-value" :x="activePurchaseTooltip.valueX" :y="activePurchaseTooltip.boxY + 47">
+                    {{ formatMoney(activePurchaseTooltip.point.amount) }}
+                  </text>
+                  <circle class="tooltip-dot orders" :cx="activePurchaseTooltip.dotX" :cy="activePurchaseTooltip.boxY + 62" r="4" />
+                  <text class="tooltip-value muted" :x="activePurchaseTooltip.valueX" :y="activePurchaseTooltip.boxY + 66">
+                    {{ formatCount(activePurchaseTooltip.point.orderCount) }}单
+                  </text>
+                </g>
               </svg>
             </div>
+            <p v-if="purchaseDashboardLoading" class="toolbar-note">正在刷新采购数据...</p>
+            <p v-if="purchaseDashboardMessage" class="toolbar-note error">{{ purchaseDashboardMessage }}</p>
           </article>
 
           <aside class="buyer-account-card">
             <h2>账户信息</h2>
-            <p>账户状态：正常</p>
+            <p>账户状态：{{ currentUserStatus == null ? '正常' : userStatusLabel(currentUserStatus) }}</p>
             <dl>
-              <div><dt>授信额度</dt><dd>￥500,000</dd></div>
-              <div><dt>当前余额</dt><dd>￥387,210</dd></div>
-              <div><dt>冻结保证金</dt><dd>￥50,000</dd></div>
-              <div><dt>授信评级</dt><dd>AAA</dd></div>
+              <div><dt>授信额度</dt><dd>{{ formatMoney(currentCreditLimit) }}</dd></div>
+              <div><dt>当前余额</dt><dd>{{ formatMoney(currentBalance) }}</dd></div>
+              <div><dt>保证金</dt><dd>{{ formatMoney(currentSecurityDeposit) }}</dd></div>
+              <div><dt>授信评级</dt><dd>{{ currentCreditRating || '-' }}</dd></div>
             </dl>
           </aside>
         </section>
@@ -3228,6 +3911,20 @@ async function requestForm<T>(
                 {{ purchaseSubmitting ? '支付中...' : '确认支付' }}
               </button>
             </div>
+          </footer>
+        </section>
+      </div>
+
+      <div v-if="purchaseSuccessModalOpen" class="modal-mask purchase-modal-mask" role="dialog" aria-modal="true">
+        <section class="category-modal purchase-success-modal">
+          <header>
+            <h2>支付成功</h2>
+            <button type="button" aria-label="关闭" @click="purchaseSuccessModalOpen = false"><X :size="18" /></button>
+          </header>
+          <p class="success-copy">{{ purchaseSuccessMessage }}</p>
+          <footer>
+            <button class="soft-action" type="button" @click="purchaseSuccessModalOpen = false">确定</button>
+            <button class="primary-action" type="button" @click="viewPurchaseOrders">查看订单</button>
           </footer>
         </section>
       </div>
@@ -3619,6 +4316,7 @@ async function requestForm<T>(
               <span>用户</span>
               <span>联系方式</span>
               <span>余额</span>
+              <span>授信信息</span>
               <span>状态</span>
               <span>注册信息</span>
               <span>最近登录</span>
@@ -3637,6 +4335,10 @@ async function requestForm<T>(
                 <small>{{ user.email || '-' }}</small>
               </span>
               <strong>{{ formatMoney(user.balance) }}</strong>
+              <span class="credit-cell">
+                <strong>{{ formatMoney(user.creditLimit) }}</strong>
+                <small>保证金 {{ formatMoney(user.securityDeposit) }} / {{ user.creditRating || '-' }}</small>
+              </span>
               <span class="order-status" :class="{ success: user.status === 1, refunded: user.status === 0 }">{{ userStatusLabel(user.status) }}</span>
               <span>
                 {{ formatDateTime(user.registerTime) }}<br />
@@ -3645,6 +4347,7 @@ async function requestForm<T>(
               <span>{{ formatDateTime(user.lastLoginTime) }}</span>
               <span class="table-actions">
                 <button class="text-action edit" type="button" @click="openBalanceAdjustModal(user)">调余额</button>
+                <button class="text-action edit" type="button" @click="openCreditEditModal(user)">授信</button>
                 <button class="text-action" :class="user.status === 1 ? 'danger' : 'edit'" type="button" @click="changeAdminUserStatus(user)">
                   {{ user.status === 1 ? '禁用' : '启用' }}
                 </button>
@@ -4289,6 +4992,20 @@ async function requestForm<T>(
       </section>
     </div>
 
+    <div v-if="purchaseSuccessModalOpen" class="modal-mask" role="dialog" aria-modal="true">
+      <section class="category-modal purchase-success-modal">
+        <header>
+          <h2>支付成功</h2>
+          <button type="button" aria-label="关闭" @click="purchaseSuccessModalOpen = false"><X :size="18" /></button>
+        </header>
+        <p class="success-copy">{{ purchaseSuccessMessage }}</p>
+        <footer>
+          <button class="soft-action" type="button" @click="purchaseSuccessModalOpen = false">确定</button>
+          <button class="primary-action" type="button" @click="viewPurchaseOrders">查看订单</button>
+        </footer>
+      </section>
+    </div>
+
     <div v-if="productModalOpen" class="modal-mask" role="dialog" aria-modal="true">
       <form class="category-modal product-modal" @submit.prevent="saveProduct">
         <header>
@@ -4521,6 +5238,45 @@ async function requestForm<T>(
           <button class="soft-action" type="button" @click="balanceAdjustModalOpen = false">取消</button>
           <button class="primary-action" type="submit" :disabled="balanceAdjustSaving || !balanceAdjustForm.remark.trim() || Number(balanceAdjustForm.amount) === 0">
             {{ balanceAdjustSaving ? '保存中...' : '确认调整' }}
+          </button>
+        </footer>
+      </form>
+    </div>
+
+    <div v-if="creditEditModalOpen && creditEditUser" class="modal-mask" role="dialog" aria-modal="true">
+      <form class="category-modal balance-adjust-modal" @submit.prevent="saveAdminUserCredit">
+        <header>
+          <h2>编辑授信信息</h2>
+          <button type="button" aria-label="关闭" @click="creditEditModalOpen = false"><X :size="18" /></button>
+        </header>
+
+        <div class="sale-preview">
+          <span>{{ creditEditUser.username }} 当前授信额度</span>
+          <strong>{{ formatMoney(creditEditUser.creditLimit) }}</strong>
+        </div>
+
+        <div class="form-grid two">
+          <label>
+            <span>授信额度</span>
+            <input v-model.number="creditEditForm.creditLimit" min="0" step="0.01" type="number" />
+          </label>
+          <label>
+            <span>保证金</span>
+            <input v-model.number="creditEditForm.securityDeposit" min="0" step="0.01" type="number" />
+          </label>
+        </div>
+
+        <label>
+          <span>授信评级</span>
+          <input v-model="creditEditForm.creditRating" maxlength="20" placeholder="例如 AAA / A / B" type="text" />
+        </label>
+
+        <p v-if="adminUserMessage" class="category-message">{{ adminUserMessage }}</p>
+
+        <footer>
+          <button class="soft-action" type="button" @click="creditEditModalOpen = false">取消</button>
+          <button class="primary-action" type="submit" :disabled="creditEditSaving || !creditEditForm.creditRating.trim()">
+            {{ creditEditSaving ? '保存中...' : '保存' }}
           </button>
         </footer>
       </form>

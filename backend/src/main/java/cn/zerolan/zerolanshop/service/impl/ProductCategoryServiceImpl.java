@@ -1,0 +1,273 @@
+package cn.zerolan.zerolanshop.service.impl;
+
+import cn.zerolan.zerolanshop.service.*;
+
+import cn.zerolan.zerolanshop.domain.dto.CategoryCreateRequest;
+import cn.zerolan.zerolanshop.domain.dto.CategoryResponse;
+import cn.zerolan.zerolanshop.domain.dto.CategoryStatusRequest;
+import cn.zerolan.zerolanshop.domain.dto.CategoryTreeResponse;
+import cn.zerolan.zerolanshop.domain.dto.CategoryUpdateRequest;
+import cn.zerolan.zerolanshop.domain.entity.ProductCategory;
+import cn.zerolan.zerolanshop.mapper.ProductCategoryMapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+@Service
+public class ProductCategoryServiceImpl implements ProductCategoryService {
+
+    private static final long ROOT_PARENT_ID = 0L;
+    private static final int STATUS_DISABLED = 0;
+    private static final int STATUS_ENABLED = 1;
+
+    private final ProductCategoryMapper productCategoryMapper;
+
+    public ProductCategoryServiceImpl(ProductCategoryMapper productCategoryMapper) {
+        this.productCategoryMapper = productCategoryMapper;
+    }
+
+    /**
+     * 查询分类平铺列表，适用于后台表格筛选和简单管理操作。
+     */
+    public List<CategoryResponse> list(Long parentId, Integer status, String name) {
+        QueryWrapper<ProductCategory> wrapper = new QueryWrapper<>();
+        if (parentId != null) {
+            wrapper.eq("parent_id", normalizeParentId(parentId));
+        }
+        if (status != null) {
+            validateStatus(status);
+            wrapper.eq("status", status);
+        }
+        if (StringUtils.hasText(name)) {
+            wrapper.like("name", name.trim());
+        }
+        wrapper.orderByAsc("parent_id", "sort", "id");
+        return productCategoryMapper.selectList(wrapper)
+                .stream()
+                .map(CategoryResponse::from)
+                .toList();
+    }
+
+    /**
+     * 构建两级分类树，供后台管理和前台展示使用。
+     */
+    public List<CategoryTreeResponse> tree() {
+        QueryWrapper<ProductCategory> wrapper = new QueryWrapper<>();
+        wrapper.orderByAsc("parent_id", "sort", "id");
+        List<ProductCategory> categories = productCategoryMapper.selectList(wrapper);
+
+        Map<Long, List<ProductCategory>> childrenByParentId = categories.stream()
+                .filter(category -> !isRoot(category.getParentId()))
+                .collect(Collectors.groupingBy(ProductCategory::getParentId));
+
+        List<CategoryTreeResponse> tree = new ArrayList<>();
+        for (ProductCategory category : categories) {
+            if (!isRoot(category.getParentId())) {
+                continue;
+            }
+            CategoryTreeResponse node = CategoryTreeResponse.from(category);
+            List<CategoryResponse> children = childrenByParentId
+                    .getOrDefault(category.getId(), List.of())
+                    .stream()
+                    .map(CategoryResponse::from)
+                    .toList();
+            node.setChildren(children);
+            tree.add(node);
+        }
+        return tree;
+    }
+
+    public CategoryResponse detail(Long id) {
+        return CategoryResponse.from(getExistingCategory(id));
+    }
+
+    /**
+     * 创建分类，并自动追加到同级分类末尾。
+     */
+    public CategoryResponse create(CategoryCreateRequest request) {
+        if (request == null) {
+            throw new RuntimeException("分类请求不能为空");
+        }
+        String name = normalizeName(request.getName());
+        Long parentId = normalizeParentId(request.getParentId());
+        Integer status = request.getStatus() == null ? STATUS_ENABLED : request.getStatus();
+        validateStatus(status);
+        validateParent(parentId);
+        validateSameParentName(null, parentId, name);
+
+        ProductCategory category = new ProductCategory();
+        category.setParentId(parentId);
+        category.setName(name);
+        category.setIcon(normalizeText(request.getIcon()));
+        category.setDescription(normalizeDescription(request.getDescription()));
+        category.setSort(nextSort(parentId));
+        category.setStatus(status);
+        productCategoryMapper.insert(category);
+        return CategoryResponse.from(category);
+    }
+
+    /**
+     * 更新分类字段，同时保持最多两级分类的层级约束。
+     */
+    public CategoryResponse update(Long id, CategoryUpdateRequest request) {
+        if (request == null) {
+            throw new RuntimeException("分类请求不能为空");
+        }
+        ProductCategory category = getExistingCategory(id);
+        String name = normalizeName(request.getName());
+        Long parentId = normalizeParentId(request.getParentId());
+        Integer status = request.getStatus() == null ? category.getStatus() : request.getStatus();
+        validateStatus(status);
+        if (parentId.equals(id)) {
+            throw new RuntimeException("分类不能将自己设为父级");
+        }
+        if (!isRoot(parentId) && hasChildren(id)) {
+            throw new RuntimeException("包含子分类的分类不能改为子分类");
+        }
+        validateParent(parentId);
+        validateSameParentName(id, parentId, name);
+
+        category.setParentId(parentId);
+        category.setName(name);
+        category.setIcon(normalizeText(request.getIcon()));
+        category.setDescription(normalizeDescription(request.getDescription()));
+        category.setStatus(status);
+        if (request.getSort() != null) {
+            if (request.getSort() < 0) {
+                throw new RuntimeException("排序值不能小于 0");
+            }
+            category.setSort(request.getSort());
+        }
+        productCategoryMapper.updateById(category);
+        return CategoryResponse.from(category);
+    }
+
+    /**
+     * 更新分类状态。按当前业务约定，状态变更不级联影响子分类。
+     */
+    public CategoryResponse updateStatus(Long id, CategoryStatusRequest request) {
+        if (request == null) {
+            throw new RuntimeException("分类状态请求不能为空");
+        }
+        ProductCategory category = getExistingCategory(id);
+        validateStatus(request.getStatus());
+        category.setStatus(request.getStatus());
+        productCategoryMapper.updateById(category);
+        return CategoryResponse.from(category);
+    }
+
+    /**
+     * 删除分类。有子分类的一级分类禁止删除。
+     */
+    public void delete(Long id) {
+        ProductCategory category = getExistingCategory(id);
+        if (isRoot(category.getParentId()) && hasChildren(id)) {
+            throw new RuntimeException("不能删除包含子分类的父级分类");
+        }
+        productCategoryMapper.deleteById(id);
+    }
+
+    private ProductCategory getExistingCategory(Long id) {
+        if (id == null || id <= 0) {
+            throw new RuntimeException("分类 ID 不能为空");
+        }
+        ProductCategory category = productCategoryMapper.selectById(id);
+        if (category == null) {
+            throw new RuntimeException("分类不存在");
+        }
+        return category;
+    }
+
+    private void validateParent(Long parentId) {
+        if (isRoot(parentId)) {
+            return;
+        }
+        ProductCategory parent = productCategoryMapper.selectById(parentId);
+        if (parent == null) {
+            throw new RuntimeException("父级分类不存在");
+        }
+        if (!isRoot(parent.getParentId())) {
+            throw new RuntimeException("仅支持二级分类");
+        }
+    }
+
+    /**
+     * 校验同级分类名称唯一；不同父级下允许出现相同分类名。
+     */
+    private void validateSameParentName(Long currentId, Long parentId, String name) {
+        QueryWrapper<ProductCategory> wrapper = new QueryWrapper<>();
+        wrapper.eq("parent_id", parentId)
+                .eq("name", name);
+        if (currentId != null) {
+            wrapper.ne("id", currentId);
+        }
+        if (productCategoryMapper.selectCount(wrapper) > 0) {
+            throw new RuntimeException("同一父级下分类名称已存在");
+        }
+    }
+
+    private boolean hasChildren(Long id) {
+        QueryWrapper<ProductCategory> wrapper = new QueryWrapper<>();
+        wrapper.eq("parent_id", id);
+        return productCategoryMapper.selectCount(wrapper) > 0;
+    }
+
+    /**
+     * 计算新分类排序号：当前同级最大 sort + 1。
+     */
+    private Integer nextSort(Long parentId) {
+        QueryWrapper<ProductCategory> wrapper = new QueryWrapper<>();
+        wrapper.eq("parent_id", parentId)
+                .select("sort")
+                .orderByDesc("sort")
+                .orderByDesc("id")
+                .last("LIMIT 1");
+        ProductCategory lastCategory = productCategoryMapper.selectOne(wrapper);
+        if (lastCategory == null || lastCategory.getSort() == null) {
+            return 1;
+        }
+        return lastCategory.getSort() + 1;
+    }
+
+    private Long normalizeParentId(Long parentId) {
+        return parentId == null ? ROOT_PARENT_ID : parentId;
+    }
+
+    private String normalizeName(String name) {
+        String normalized = normalizeText(name);
+        if (!StringUtils.hasText(normalized)) {
+            throw new RuntimeException("分类名称不能为空");
+        }
+        if (normalized.length() > 50) {
+            throw new RuntimeException("分类名称不能超过 50 个字符");
+        }
+        return normalized;
+    }
+
+    private String normalizeDescription(String description) {
+        String normalized = normalizeText(description);
+        if (normalized != null && normalized.length() > 255) {
+            throw new RuntimeException("分类描述不能超过 255 个字符");
+        }
+        return normalized;
+    }
+
+    private String normalizeText(String value) {
+        return value == null ? null : value.trim();
+    }
+
+    private void validateStatus(Integer status) {
+        if (status == null || (status != STATUS_DISABLED && status != STATUS_ENABLED)) {
+            throw new RuntimeException("状态只能为 0 或 1");
+        }
+    }
+
+    private boolean isRoot(Long parentId) {
+        return parentId == null || parentId == ROOT_PARENT_ID;
+    }
+}

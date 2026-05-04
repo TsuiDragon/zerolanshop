@@ -3,6 +3,7 @@ package cn.zerolan.zerolanshop.controller;
 import cn.zerolan.zerolanshop.common.Result;
 import cn.zerolan.zerolanshop.domain.dto.AdminUserResponse;
 import cn.zerolan.zerolanshop.domain.dto.UserBalanceAdjustRequest;
+import cn.zerolan.zerolanshop.domain.dto.UserCreditUpdateRequest;
 import cn.zerolan.zerolanshop.domain.dto.UserStatusRequest;
 import cn.zerolan.zerolanshop.service.AdminUserService;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -46,5 +47,10 @@ public class AdminUserController {
     @PatchMapping("/{id}/balance")
     public Result<AdminUserResponse> adjustBalance(@PathVariable Long id, @RequestBody UserBalanceAdjustRequest request) {
         return Result.success(adminUserService.adjustBalance(id, request));
+    }
+
+    @PatchMapping("/{id}/credit")
+    public Result<AdminUserResponse> updateCredit(@PathVariable Long id, @RequestBody UserCreditUpdateRequest request) {
+        return Result.success(adminUserService.updateCredit(id, request));
     }
 }

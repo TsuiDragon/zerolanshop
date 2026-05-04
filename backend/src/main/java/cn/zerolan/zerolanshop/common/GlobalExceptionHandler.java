@@ -22,6 +22,6 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(Exception.class)
     public Result<Void> handleException(Exception exception) {
-        return Result.error("Internal server error");
+        return Result.error("服务器内部错误");
     }
 }

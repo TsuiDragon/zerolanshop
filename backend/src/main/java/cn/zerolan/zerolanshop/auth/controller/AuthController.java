@@ -1,10 +1,13 @@
-package cn.zerolan.zerolanshop.controller;
+package cn.zerolan.zerolanshop.auth.controller;
 
+import cn.zerolan.zerolanshop.auth.dto.LoginRequest;
+import cn.zerolan.zerolanshop.auth.dto.LoginResponse;
+import cn.zerolan.zerolanshop.auth.dto.PasswordResetRequest;
+import cn.zerolan.zerolanshop.auth.dto.RegisterRequest;
+import cn.zerolan.zerolanshop.auth.dto.SmsCodeRequest;
+import cn.zerolan.zerolanshop.auth.dto.SmsLoginRequest;
+import cn.zerolan.zerolanshop.auth.service.AuthService;
 import cn.zerolan.zerolanshop.common.Result;
-import cn.zerolan.zerolanshop.domain.dto.LoginRequest;
-import cn.zerolan.zerolanshop.domain.dto.LoginResponse;
-import cn.zerolan.zerolanshop.domain.dto.RegisterRequest;
-import cn.zerolan.zerolanshop.service.AuthService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -40,6 +43,23 @@ public class AuthController {
     public Result<LoginResponse> createSession(@RequestBody LoginRequest request) {
         LoginResponse response = authService.login(request);
         return Result.success(response);
+    }
+
+    @PostMapping("/sms-codes")
+    public Result<Void> sendSmsCode(@RequestBody SmsCodeRequest request) {
+        authService.sendSmsCode(request);
+        return Result.success();
+    }
+
+    @PostMapping("/sms-sessions")
+    public Result<LoginResponse> createSmsSession(@RequestBody SmsLoginRequest request) {
+        return Result.success(authService.smsLogin(request));
+    }
+
+    @PostMapping("/password-reset")
+    public Result<Void> resetPassword(@RequestBody PasswordResetRequest request) {
+        authService.resetPassword(request);
+        return Result.success();
     }
 
     /**

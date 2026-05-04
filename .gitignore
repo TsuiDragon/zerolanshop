@@ -43,6 +43,7 @@ node_modules/
 dist/
 dist-ssr/
 .vite/
+frontend/.vite-current-cache/
 .cache/
 coverage/
 npm-debug.log*

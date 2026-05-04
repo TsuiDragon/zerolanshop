@@ -6,6 +6,7 @@ import cn.zerolan.zerolanshop.domain.dto.SupplyChannelResponse;
 import cn.zerolan.zerolanshop.domain.dto.SupplyChannelUpdateRequest;
 import cn.zerolan.zerolanshop.domain.entity.SupplyChannel;
 import cn.zerolan.zerolanshop.mapper.SupplyChannelMapper;
+import cn.zerolan.zerolanshop.service.impl.SupplyChannelServiceImpl;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -20,7 +21,7 @@ class SupplyChannelServiceTests {
 
     private final SupplyChannelMapper supplyChannelMapper = mock(SupplyChannelMapper.class);
     private final YoukayunClient youkayunClient = mock(YoukayunClient.class);
-    private final SupplyChannelService supplyChannelService = new SupplyChannelService(supplyChannelMapper, youkayunClient);
+    private final SupplyChannelService supplyChannelService = new SupplyChannelServiceImpl(supplyChannelMapper, youkayunClient);
 
     @Test
     void createMasksSecretInResponse() {

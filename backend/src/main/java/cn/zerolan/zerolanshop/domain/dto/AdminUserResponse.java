@@ -15,6 +15,9 @@ public class AdminUserResponse {
     private String nickname;
     private String avatar;
     private BigDecimal balance;
+    private BigDecimal creditLimit;
+    private BigDecimal securityDeposit;
+    private String creditRating;
     private Integer status;
     private String registerIp;
     private LocalDateTime registerTime;
@@ -30,6 +33,9 @@ public class AdminUserResponse {
         response.setNickname(user.getNickname());
         response.setAvatar(user.getAvatar());
         response.setBalance(user.getBalance());
+        response.setCreditLimit(user.getCreditLimit());
+        response.setSecurityDeposit(user.getSecurityDeposit());
+        response.setCreditRating(user.getCreditRating());
         response.setStatus(user.getStatus());
         response.setRegisterIp(user.getRegisterIp());
         response.setRegisterTime(user.getRegisterTime());

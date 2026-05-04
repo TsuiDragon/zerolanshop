@@ -8,6 +8,25 @@ zerolanshop:
   callback:
     base-url: ${CALLBACK_BASE_URL:http://localhost:8080}
     youkayun-order-path: ${YOUKAYUN_ORDER_CALLBACK_PATH:/api/callbacks/youkayun/order}
+  supply-monitor:
+    initial-delay-ms: ${SUPPLY_MONITOR_INITIAL_DELAY_MS:300000}
+    fixed-delay-ms: ${SUPPLY_MONITOR_FIXED_DELAY_MS:300000}
+  aliyun:
+    sms-auth:
+      enabled: ${ALIYUN_SMS_AUTH_ENABLED:true}
+      endpoint: ${ALIYUN_SMS_AUTH_ENDPOINT:dypnsapi.aliyuncs.com}
+      access-key-id: ${ALIYUN_SMS_AUTH_ACCESS_KEY_ID:}
+      access-key-secret: ${ALIYUN_SMS_AUTH_ACCESS_KEY_SECRET:}
+      sign-name: ${ALIYUN_SMS_AUTH_SIGN_NAME:速通互联验证码}
+      template-code: ${ALIYUN_SMS_AUTH_TEMPLATE_CODE:100001}
+      register-template-code: ${ALIYUN_SMS_AUTH_REGISTER_TEMPLATE_CODE:100001}
+      login-template-code: ${ALIYUN_SMS_AUTH_LOGIN_TEMPLATE_CODE:100001}
+      password-reset-template-code: ${ALIYUN_SMS_AUTH_PASSWORD_RESET_TEMPLATE_CODE:100003}
+      bind-phone-template-code: ${ALIYUN_SMS_AUTH_BIND_PHONE_TEMPLATE_CODE:100002}
+      country-code: ${ALIYUN_SMS_AUTH_COUNTRY_CODE:86}
+      scheme-prefix: ${ALIYUN_SMS_AUTH_SCHEME_PREFIX:ZLS}
+      valid-minutes: ${ALIYUN_SMS_AUTH_VALID_MINUTES:5}
+      code-length: ${ALIYUN_SMS_AUTH_CODE_LENGTH:6}
 
 jwt:
   secret: ${JWT_SECRET:zerolanshop-jwt-secret-key-2026-min-32-bytes}

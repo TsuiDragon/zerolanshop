@@ -1,6 +1,7 @@
 package cn.zerolan.zerolanshop.service;
 
 import cn.zerolan.zerolanshop.domain.entity.PricingTemplate;
+import cn.zerolan.zerolanshop.service.impl.PricingTemplateServiceImpl;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -9,7 +10,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class PricingTemplateServiceTests {
 
-    private final PricingTemplateService pricingTemplateService = new PricingTemplateService(null);
+    private final PricingTemplateService pricingTemplateService = new PricingTemplateServiceImpl(null);
 
     @Test
     void percentageTemplateCalculatesSalePrice() {

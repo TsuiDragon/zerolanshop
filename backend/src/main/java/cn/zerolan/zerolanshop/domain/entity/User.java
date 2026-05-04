@@ -28,6 +28,15 @@ public class User {
     @TableField("balance")
     private BigDecimal balance;
 
+    @TableField("credit_limit")
+    private BigDecimal creditLimit;
+
+    @TableField("security_deposit")
+    private BigDecimal securityDeposit;
+
+    @TableField("credit_rating")
+    private String creditRating;
+
     @TableField("wx_openid")
     private String wxOpenid;
 

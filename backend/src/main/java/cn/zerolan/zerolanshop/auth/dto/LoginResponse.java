@@ -1,4 +1,4 @@
-package cn.zerolan.zerolanshop.domain.dto;
+package cn.zerolan.zerolanshop.auth.dto;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;

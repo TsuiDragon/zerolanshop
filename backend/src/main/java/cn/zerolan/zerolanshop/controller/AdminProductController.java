@@ -6,6 +6,7 @@ import cn.zerolan.zerolanshop.domain.dto.ProductResponse;
 import cn.zerolan.zerolanshop.domain.dto.ProductStatusRequest;
 import cn.zerolan.zerolanshop.domain.dto.ProductUpdateRequest;
 import cn.zerolan.zerolanshop.service.ProductService;
+import cn.zerolan.zerolanshop.service.SupplyChannelMonitorService;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -24,9 +25,11 @@ import java.util.List;
 public class AdminProductController {
 
     private final ProductService productService;
+    private final SupplyChannelMonitorService supplyChannelMonitorService;
 
-    public AdminProductController(ProductService productService) {
+    public AdminProductController(ProductService productService, SupplyChannelMonitorService supplyChannelMonitorService) {
         this.productService = productService;
+        this.supplyChannelMonitorService = supplyChannelMonitorService;
     }
 
     @GetMapping
@@ -57,6 +60,12 @@ public class AdminProductController {
     @PatchMapping("/{id}/status")
     public Result<ProductResponse> updateStatus(@PathVariable Long id, @RequestBody ProductStatusRequest request) {
         return Result.success(productService.updateStatus(id, request));
+    }
+
+    @PostMapping("/{id}/supply-monitor/run")
+    public Result<ProductResponse> runSupplyMonitor(@PathVariable Long id) {
+        supplyChannelMonitorService.monitorProduct(id);
+        return Result.success(productService.detail(id));
     }
 
     @DeleteMapping("/{id}")
