@@ -21,9 +21,11 @@ public class AdminUserService {
     private static final int STATUS_ENABLED = 1;
 
     private final UserMapper userMapper;
+    private final UserBalanceRecordService userBalanceRecordService;
 
-    public AdminUserService(UserMapper userMapper) {
+    public AdminUserService(UserMapper userMapper, UserBalanceRecordService userBalanceRecordService) {
         this.userMapper = userMapper;
+        this.userBalanceRecordService = userBalanceRecordService;
     }
 
     public List<AdminUserResponse> list(String keyword, Integer status) {
@@ -68,11 +70,14 @@ public class AdminUserService {
         if (request == null || request.getAmount() == null) {
             throw new RuntimeException("Balance amount is required");
         }
+        if (!StringUtils.hasText(request.getRemark())) {
+            throw new RuntimeException("Balance remark is required");
+        }
         BigDecimal amount = request.getAmount().setScale(2, RoundingMode.HALF_UP);
         if (amount.compareTo(BigDecimal.ZERO) == 0) {
             throw new RuntimeException("Balance amount cannot be zero");
         }
-        User user = getExistingUser(id);
+        User user = getExistingUserForUpdate(id);
         BigDecimal currentBalance = user.getBalance() == null ? BigDecimal.ZERO : user.getBalance();
         BigDecimal nextBalance = currentBalance.add(amount).setScale(2, RoundingMode.HALF_UP);
         if (nextBalance.compareTo(BigDecimal.ZERO) < 0) {
@@ -80,6 +85,15 @@ public class AdminUserService {
         }
         user.setBalance(nextBalance);
         userMapper.updateById(user);
+        userBalanceRecordService.record(
+                user,
+                amount.compareTo(BigDecimal.ZERO) > 0 ? UserBalanceRecordService.TYPE_ADMIN_ADD : UserBalanceRecordService.TYPE_ADMIN_DEDUCT,
+                currentBalance,
+                amount,
+                nextBalance,
+                null,
+                request.getRemark()
+        );
         return AdminUserResponse.from(user);
     }
 
@@ -88,6 +102,17 @@ public class AdminUserService {
             throw new RuntimeException("User ID is required");
         }
         User user = userMapper.selectById(id);
+        if (user == null) {
+            throw new RuntimeException("User does not exist");
+        }
+        return user;
+    }
+
+    private User getExistingUserForUpdate(Long id) {
+        if (id == null || id <= 0) {
+            throw new RuntimeException("User ID is required");
+        }
+        User user = userMapper.selectByIdForUpdate(id);
         if (user == null) {
             throw new RuntimeException("User does not exist");
         }

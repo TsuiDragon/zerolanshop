@@ -31,6 +31,7 @@ import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -58,6 +59,7 @@ public class VirtualOrderService {
     private final UserMapper userMapper;
     private final OrderTemplateService orderTemplateService;
     private final SupplyOrderDispatchService supplyOrderDispatchService;
+    private final UserBalanceRecordService userBalanceRecordService;
     private final ObjectMapper objectMapper;
     private final String callbackBaseUrl;
     private final String youkayunOrderCallbackPath;
@@ -71,6 +73,7 @@ public class VirtualOrderService {
             UserMapper userMapper,
             OrderTemplateService orderTemplateService,
             SupplyOrderDispatchService supplyOrderDispatchService,
+            UserBalanceRecordService userBalanceRecordService,
             ObjectMapper objectMapper,
             @Value("${zerolanshop.callback.base-url:http://localhost:8080}") String callbackBaseUrl,
             @Value("${zerolanshop.callback.youkayun-order-path:/api/callbacks/youkayun/order}") String youkayunOrderCallbackPath
@@ -83,6 +86,7 @@ public class VirtualOrderService {
         this.userMapper = userMapper;
         this.orderTemplateService = orderTemplateService;
         this.supplyOrderDispatchService = supplyOrderDispatchService;
+        this.userBalanceRecordService = userBalanceRecordService;
         this.objectMapper = objectMapper;
         this.callbackBaseUrl = callbackBaseUrl;
         this.youkayunOrderCallbackPath = youkayunOrderCallbackPath;
@@ -91,7 +95,7 @@ public class VirtualOrderService {
     @Transactional
     public List<VirtualOrderResponse> create(Long userId, VirtualOrderCreateRequest request, String sourceIp) {
         validateCreateRequest(request);
-        User user = getExistingUser(userId);
+        User user = getExistingUserForUpdate(userId);
         Product product = getPurchasableProduct(request.getProductId());
         validateQuantity(product, request.getQuantity());
         List<String> rechargeAccounts = parseRechargeAccounts(request.getRechargeAccount());
@@ -110,10 +114,13 @@ public class VirtualOrderService {
         SupplyChannel activeChannel = activeBinding == null ? null : supplyChannelMapper.selectById(activeBinding.getChannelId());
         LocalDateTime now = LocalDateTime.now();
         String productSnapshot = buildProductSnapshot(product, activeBinding, activeChannel);
-        user.setBalance(user.getBalance().subtract(totalAmount).setScale(2, RoundingMode.HALF_UP));
+        BigDecimal beforeBalance = user.getBalance() == null ? BigDecimal.ZERO : user.getBalance();
+        user.setBalance(beforeBalance.subtract(totalAmount).setScale(2, RoundingMode.HALF_UP));
         userMapper.updateById(user);
 
-        List<VirtualOrder> orders = rechargeAccounts.stream().map(account -> {
+        BigDecimal runningBalance = beforeBalance;
+        List<VirtualOrder> orders = new ArrayList<>();
+        for (String account : rechargeAccounts) {
             VirtualOrder order = new VirtualOrder();
             order.setOrderNo(generateOrderNo(LocalDateTime.now()));
             order.setUserId(user.getId());
@@ -130,8 +137,19 @@ public class VirtualOrderService {
             order.setCreatedAt(now);
             order.setUpdateTime(now);
             virtualOrderMapper.insert(order);
-            return order;
-        }).toList();
+            BigDecimal afterOrderBalance = runningBalance.subtract(singleAmount).setScale(2, RoundingMode.HALF_UP);
+            userBalanceRecordService.record(
+                    user,
+                    UserBalanceRecordService.TYPE_PURCHASE,
+                    runningBalance,
+                    singleAmount.negate(),
+                    afterOrderBalance,
+                    order.getOrderNo(),
+                    product.getName()
+            );
+            runningBalance = afterOrderBalance;
+            orders.add(order);
+        }
 
         if (activeBinding != null && activeChannel != null && activeChannel.getStatus() != null && activeChannel.getStatus() == ENABLED) {
             orders.forEach(order -> dispatch(order, activeChannel));
@@ -181,6 +199,15 @@ public class VirtualOrderService {
         VirtualOrder order = virtualOrderMapper.selectById(id);
         if (order == null) {
             throw new RuntimeException("Order does not exist");
+        }
+        if (STATUS_REFUNDED.equals(order.getStatus())) {
+            if (!STATUS_REFUNDED.equals(status)) {
+                throw new RuntimeException("Refunded order status cannot be changed");
+            }
+            return VirtualOrderResponse.from(order);
+        }
+        if (STATUS_REFUNDED.equals(status)) {
+            refundOrder(order);
         }
         markTerminal(order, status, request.getExceptionMessage());
         virtualOrderMapper.updateById(order);
@@ -236,9 +263,15 @@ public class VirtualOrderService {
         if (StringUtils.hasText(channelOrderNo)) {
             order.setChannelOrderNo(channelOrderNo);
         }
+        if (STATUS_REFUNDED.equals(order.getStatus()) && !"5".equals(callbackStatus)) {
+            throw new RuntimeException("Refunded order status cannot be changed");
+        }
         if ("3".equals(callbackStatus)) {
             markTerminal(order, STATUS_SUCCESS, null);
         } else if ("5".equals(callbackStatus)) {
+            if (!STATUS_REFUNDED.equals(order.getStatus())) {
+                refundOrder(order);
+            }
             markTerminal(order, STATUS_REFUNDED, null);
         } else {
             order.setExceptionMessage("Youkayun callback status: " + callbackStatus);
@@ -379,6 +412,20 @@ public class VirtualOrderService {
         return user;
     }
 
+    private User getExistingUserForUpdate(Long userId) {
+        if (userId == null || userId <= 0) {
+            throw new RuntimeException("User ID is required");
+        }
+        User user = userMapper.selectByIdForUpdate(userId);
+        if (user == null) {
+            throw new RuntimeException("User does not exist");
+        }
+        if (user.getStatus() != null && user.getStatus() == 0) {
+            throw new RuntimeException("Account is disabled");
+        }
+        return user;
+    }
+
     private void validateQuantity(Product product, Integer quantity) {
         int min = product.getMinPurchaseQuantity() == null ? 1 : product.getMinPurchaseQuantity();
         if (quantity < min) {
@@ -443,6 +490,33 @@ public class VirtualOrderService {
         order.setProcessingDurationSeconds(Duration.between(order.getCreatedAt(), processedAt).getSeconds());
         order.setExceptionMessage(StringUtils.hasText(exceptionMessage) ? exceptionMessage.trim() : null);
         order.setUpdateTime(processedAt);
+    }
+
+    private void refundOrder(VirtualOrder order) {
+        if (!PAYMENT_BALANCE.equals(order.getPaymentMethod())) {
+            return;
+        }
+        User user = userMapper.selectByIdForUpdate(order.getUserId());
+        if (user == null) {
+            throw new RuntimeException("Order user does not exist");
+        }
+        BigDecimal refundAmount = order.getOrderAmount() == null ? BigDecimal.ZERO : order.getOrderAmount().setScale(2, RoundingMode.HALF_UP);
+        if (refundAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            return;
+        }
+        BigDecimal beforeBalance = user.getBalance() == null ? BigDecimal.ZERO : user.getBalance();
+        BigDecimal afterBalance = beforeBalance.add(refundAmount).setScale(2, RoundingMode.HALF_UP);
+        user.setBalance(afterBalance);
+        userMapper.updateById(user);
+        userBalanceRecordService.record(
+                user,
+                UserBalanceRecordService.TYPE_ORDER_REFUND,
+                beforeBalance,
+                refundAmount,
+                afterBalance,
+                order.getOrderNo(),
+                order.getProductName()
+        );
     }
 
     private String normalizeStatus(String status) {

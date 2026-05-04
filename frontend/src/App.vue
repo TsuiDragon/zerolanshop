@@ -32,8 +32,8 @@ import {
 } from 'lucide-vue-next'
 
 type Page = 'admin' | 'adminAuth' | 'home' | 'userAuth'
-type AdminView = 'home' | 'product' | 'category' | 'pricingTemplate' | 'orderTemplate' | 'mediaAsset' | 'supplyChannel' | 'user' | 'order'
-type BuyerView = 'dashboard' | 'benefits' | 'products' | 'orders'
+type AdminView = 'home' | 'product' | 'category' | 'pricingTemplate' | 'orderTemplate' | 'mediaAsset' | 'supplyChannel' | 'user' | 'order' | 'balanceRecord'
+type BuyerView = 'dashboard' | 'benefits' | 'products' | 'orders' | 'balanceRecords' | 'topUpRecords' | 'recharge'
 type AuthMode = 'login' | 'register'
 type PricingType = 'PERCENTAGE' | 'FIXED_AMOUNT'
 type ProductType = 'VIRTUAL' | 'CARD' | 'NORMAL'
@@ -84,6 +84,32 @@ type AdminUserResponse = {
 type AdminUserFilters = {
   keyword: string
   status: '' | 0 | 1
+}
+
+type BalanceRecordType = '' | 'PURCHASE' | 'ORDER_REFUND' | 'ADMIN_ADD' | 'ADMIN_DEDUCT' | 'SELF_RECHARGE'
+
+type UserBalanceRecordResponse = {
+  id: number
+  userId: number
+  username: string
+  recordType: Exclude<BalanceRecordType, ''>
+  beforeBalance: number
+  changeAmount: number
+  afterBalance: number
+  orderNo?: string | null
+  remark?: string | null
+  createTime?: string
+}
+
+type BalanceRecordFilters = {
+  recordType: BalanceRecordType
+  orderNo: string
+  startTime: string
+  endTime: string
+}
+
+type AdminBalanceRecordFilters = BalanceRecordFilters & {
+  userKeyword: string
 }
 
 type ImageUploadResponse = {
@@ -377,6 +403,8 @@ type AdminMenu = {
 const currentPath = ref(window.location.pathname)
 const adminView = ref<AdminView>(getAdminViewFromPath(currentPath.value))
 const buyerView = ref<BuyerView>('benefits')
+const buyerPurchaseExpanded = ref(true)
+const buyerFinanceExpanded = ref(false)
 
 const page = computed<Page>(() => {
   const path = normalizePath(currentPath.value)
@@ -392,7 +420,8 @@ const page = computed<Page>(() => {
     path === '/admin/goods/media-assets' ||
     path === '/admin/goods/supply-channels' ||
     path === '/admin/users' ||
-    path === '/admin/orders'
+    path === '/admin/orders' ||
+    path === '/admin/finance/balance-records'
   ) return 'admin'
   if (
     path === '/home' ||
@@ -402,6 +431,9 @@ const page = computed<Page>(() => {
     path === '/purchase/products' ||
     path === '/purchase/orders' ||
     path === '/purchase/order' ||
+    path === '/finance/balance-records' ||
+    path === '/finance/top-up-records' ||
+    path === '/finance/recharge' ||
     path === '/orders' ||
     path === '/order'
   ) return 'home'
@@ -599,6 +631,32 @@ const adminUserFilters = reactive<AdminUserFilters>({
   keyword: '',
   status: '',
 })
+const buyerBalanceRecords = ref<UserBalanceRecordResponse[]>([])
+const buyerBalanceRecordLoading = ref(false)
+const buyerBalanceRecordMessage = ref('')
+const buyerBalanceRecordFilters = reactive<BalanceRecordFilters>({
+  recordType: '',
+  orderNo: '',
+  startTime: '',
+  endTime: '',
+})
+const adminBalanceRecords = ref<UserBalanceRecordResponse[]>([])
+const adminBalanceRecordLoading = ref(false)
+const adminBalanceRecordMessage = ref('')
+const adminBalanceRecordFilters = reactive<AdminBalanceRecordFilters>({
+  recordType: '',
+  orderNo: '',
+  userKeyword: '',
+  startTime: '',
+  endTime: '',
+})
+const balanceAdjustModalOpen = ref(false)
+const balanceAdjustUser = ref<AdminUserResponse | null>(null)
+const balanceAdjustSaving = ref(false)
+const balanceAdjustForm = reactive({
+  amount: 0,
+  remark: '',
+})
 
 const adminMenus = reactive<AdminMenu[]>([
   { name: '首页', icon: Home, view: 'home' as AdminView },
@@ -617,6 +675,14 @@ const adminMenus = reactive<AdminMenu[]>([
   },
   { name: '用户', icon: Users, view: 'user' as AdminView },
   { name: '订单', icon: ShoppingCart, view: 'order' as AdminView },
+  {
+    name: '财务',
+    icon: WalletCards,
+    expanded: true,
+    children: [
+      { name: '余额明细', view: 'balanceRecord' as AdminView },
+    ],
+  },
   { name: '数据', icon: BarChart3 },
   { name: '运营', icon: Megaphone },
   { name: '设置', icon: Settings },
@@ -896,6 +962,7 @@ function getAdminPath(view: AdminView) {
   if (view === 'supplyChannel') return '/admin/goods/supply-channels'
   if (view === 'user') return '/admin/users'
   if (view === 'order') return '/admin/orders'
+  if (view === 'balanceRecord') return '/admin/finance/balance-records'
   return '/admin/index'
 }
 
@@ -908,6 +975,7 @@ function getAdminViewFromPath(path: string): AdminView {
   if (path === '/admin/goods/supply-channels') return 'supplyChannel'
   if (path === '/admin/users') return 'user'
   if (path === '/admin/orders') return 'order'
+  if (path === '/admin/finance/balance-records') return 'balanceRecord'
   return 'home'
 }
 
@@ -938,6 +1006,9 @@ function syncAdminViewFromPath() {
   if (adminView.value === 'order' && adminOrders.value.length === 0) {
     loadAdminOrders()
   }
+  if (adminView.value === 'balanceRecord' && adminBalanceRecords.value.length === 0) {
+    loadAdminBalanceRecords()
+  }
 }
 
 function isGoodsAdminView() {
@@ -947,11 +1018,20 @@ function isGoodsAdminView() {
 function syncBuyerView() {
   if (page.value !== 'home') return
   buyerView.value = getBuyerViewFromPath(currentPath.value)
+  if (buyerView.value === 'benefits' || buyerView.value === 'products') {
+    buyerPurchaseExpanded.value = true
+  }
+  if (buyerView.value === 'balanceRecords' || buyerView.value === 'topUpRecords' || buyerView.value === 'recharge') {
+    buyerFinanceExpanded.value = true
+  }
   if (!buyerProducts.value.length && !buyerStoreLoading.value) {
     loadBuyerStoreData()
   }
   if (buyerView.value === 'orders' && !buyerOrders.value.length && !buyerOrderLoading.value) {
     loadBuyerOrders()
+  }
+  if (buyerView.value === 'balanceRecords' && !buyerBalanceRecords.value.length && !buyerBalanceRecordLoading.value) {
+    loadBuyerBalanceRecords()
   }
   if (currentBalance.value === 0) {
     loadCurrentUserProfile()
@@ -962,10 +1042,31 @@ function switchBuyerView(view: BuyerView) {
   navigate(getBuyerPath(view))
 }
 
+function toggleBuyerPurchaseMenu() {
+  buyerPurchaseExpanded.value = !buyerPurchaseExpanded.value
+}
+
+function switchBuyerPurchaseView(view: Extract<BuyerView, 'benefits' | 'products'>) {
+  buyerPurchaseExpanded.value = true
+  switchBuyerView(view)
+}
+
+function toggleBuyerFinanceMenu() {
+  buyerFinanceExpanded.value = !buyerFinanceExpanded.value
+}
+
+function switchBuyerFinanceView(view: Extract<BuyerView, 'balanceRecords' | 'topUpRecords' | 'recharge'>) {
+  buyerFinanceExpanded.value = true
+  switchBuyerView(view)
+}
+
 function getBuyerPath(view: BuyerView) {
   if (view === 'benefits') return '/purchase/benefits'
   if (view === 'products') return '/purchase/products'
   if (view === 'orders') return '/purchase/orders'
+  if (view === 'balanceRecords') return '/finance/balance-records'
+  if (view === 'topUpRecords') return '/finance/top-up-records'
+  if (view === 'recharge') return '/finance/recharge'
   return '/index'
 }
 
@@ -974,6 +1075,9 @@ function getBuyerViewFromPath(path: string): BuyerView {
   if (normalized === '/purchase' || normalized === '/purchase/benefits') return 'benefits'
   if (normalized === '/purchase/products') return 'products'
   if (normalized === '/purchase/orders' || normalized === '/purchase/order' || normalized === '/orders' || normalized === '/order') return 'orders'
+  if (normalized === '/finance/balance-records') return 'balanceRecords'
+  if (normalized === '/finance/top-up-records') return 'topUpRecords'
+  if (normalized === '/finance/recharge') return 'recharge'
   return 'dashboard'
 }
 
@@ -1236,6 +1340,55 @@ async function loadAdminOrders() {
   }
 }
 
+async function loadBuyerBalanceRecords() {
+  buyerBalanceRecordLoading.value = true
+  buyerBalanceRecordMessage.value = ''
+  try {
+    const params = new URLSearchParams()
+    if (buyerBalanceRecordFilters.recordType) params.set('recordType', buyerBalanceRecordFilters.recordType)
+    if (buyerBalanceRecordFilters.orderNo.trim()) params.set('orderNo', buyerBalanceRecordFilters.orderNo.trim())
+    if (buyerBalanceRecordFilters.startTime) params.set('startTime', buyerBalanceRecordFilters.startTime)
+    if (buyerBalanceRecordFilters.endTime) params.set('endTime', buyerBalanceRecordFilters.endTime)
+    const query = params.toString()
+    const result = await requestUserJson<UserBalanceRecordResponse[]>(`/api/users/balance-records${query ? `?${query}` : ''}`)
+    buyerBalanceRecords.value = result.data
+  } catch (error) {
+    buyerBalanceRecordMessage.value = error instanceof Error ? error.message : '余额明细加载失败'
+  } finally {
+    buyerBalanceRecordLoading.value = false
+  }
+}
+
+function resetBuyerBalanceRecordFilters() {
+  Object.assign(buyerBalanceRecordFilters, { recordType: '', orderNo: '', startTime: '', endTime: '' })
+  loadBuyerBalanceRecords()
+}
+
+async function loadAdminBalanceRecords() {
+  adminBalanceRecordLoading.value = true
+  adminBalanceRecordMessage.value = ''
+  try {
+    const params = new URLSearchParams()
+    if (adminBalanceRecordFilters.recordType) params.set('recordType', adminBalanceRecordFilters.recordType)
+    if (adminBalanceRecordFilters.orderNo.trim()) params.set('orderNo', adminBalanceRecordFilters.orderNo.trim())
+    if (adminBalanceRecordFilters.userKeyword.trim()) params.set('userKeyword', adminBalanceRecordFilters.userKeyword.trim())
+    if (adminBalanceRecordFilters.startTime) params.set('startTime', adminBalanceRecordFilters.startTime)
+    if (adminBalanceRecordFilters.endTime) params.set('endTime', adminBalanceRecordFilters.endTime)
+    const query = params.toString()
+    const result = await requestJson<UserBalanceRecordResponse[]>(`/api/admin/finance/balance-records${query ? `?${query}` : ''}`)
+    adminBalanceRecords.value = result.data
+  } catch (error) {
+    adminBalanceRecordMessage.value = error instanceof Error ? error.message : '余额明细加载失败'
+  } finally {
+    adminBalanceRecordLoading.value = false
+  }
+}
+
+function resetAdminBalanceRecordFilters() {
+  Object.assign(adminBalanceRecordFilters, { recordType: '', orderNo: '', userKeyword: '', startTime: '', endTime: '' })
+  loadAdminBalanceRecords()
+}
+
 async function loadAdminUsers() {
   adminUserLoading.value = true
   adminUserMessage.value = ''
@@ -1272,23 +1425,41 @@ async function changeAdminUserStatus(user: AdminUserResponse) {
   }
 }
 
-async function adjustAdminUserBalance(user: AdminUserResponse) {
-  const input = window.prompt('请输入余额调整金额，正数为充值，负数为扣减', '0.00')
-  if (input == null) return
-  const amount = Number(input)
+function openBalanceAdjustModal(user: AdminUserResponse) {
+  balanceAdjustUser.value = user
+  balanceAdjustForm.amount = 0
+  balanceAdjustForm.remark = ''
+  adminUserMessage.value = ''
+  balanceAdjustModalOpen.value = true
+}
+
+async function adjustAdminUserBalance() {
+  if (!balanceAdjustUser.value) return
+  const amount = Number(balanceAdjustForm.amount)
   if (!Number.isFinite(amount) || amount === 0) {
     adminUserMessage.value = '请输入非零数字金额'
     return
   }
+  if (!balanceAdjustForm.remark.trim()) {
+    adminUserMessage.value = '请填写余额调整备注'
+    return
+  }
   adminUserMessage.value = ''
+  balanceAdjustSaving.value = true
   try {
-    await requestJson<AdminUserResponse>(`/api/admin/users/${user.id}/balance`, {
+    await requestJson<AdminUserResponse>(`/api/admin/users/${balanceAdjustUser.value.id}/balance`, {
       method: 'PATCH',
-      body: { amount },
+      body: { amount, remark: balanceAdjustForm.remark.trim() },
     })
+    balanceAdjustModalOpen.value = false
     await loadAdminUsers()
+    if (adminView.value === 'balanceRecord') {
+      await loadAdminBalanceRecords()
+    }
   } catch (error) {
     adminUserMessage.value = error instanceof Error ? error.message : '余额调整失败'
+  } finally {
+    balanceAdjustSaving.value = false
   }
 }
 
@@ -1833,6 +2004,24 @@ function orderStatusLabel(status: VirtualOrderStatus | '') {
 
 function paymentMethodLabel(method?: string | null) {
   return method === 'BALANCE' ? '余额支付' : method || '-'
+}
+
+function balanceRecordTypeLabel(type: BalanceRecordType | string) {
+  const labels: Record<Exclude<BalanceRecordType, ''>, string> = {
+    PURCHASE: '购买商品',
+    ORDER_REFUND: '订单退款',
+    ADMIN_ADD: '财务加款',
+    ADMIN_DEDUCT: '财务扣款',
+    SELF_RECHARGE: '自助充值',
+  }
+  return type ? labels[type as Exclude<BalanceRecordType, ''>] || type : '全部类型'
+}
+
+function balanceChangeClass(amount?: number | string | null) {
+  const value = Number(amount)
+  if (value > 0) return 'income'
+  if (value < 0) return 'expense'
+  return ''
 }
 
 function userStatusLabel(status?: number | null) {
@@ -2584,9 +2773,32 @@ async function requestForm<T>(
       </div>
       <nav class="buyer-nav" aria-label="采购端导航">
         <button :class="{ active: buyerView === 'dashboard' }" type="button" @click="navigate('/index')"><Home :size="20" />主页</button>
-        <button :class="{ active: buyerView === 'benefits' || buyerView === 'products' }" type="button" @click="navigate('/purchase/benefits')"><ShoppingCart :size="20" />采购中心</button>
+        <div class="buyer-nav-group">
+          <button :class="{ active: buyerView === 'benefits' || buyerView === 'products' }" type="button" @click="toggleBuyerPurchaseMenu">
+            <ShoppingCart :size="20" />
+            <span>采购中心</span>
+            <ChevronDown v-if="buyerPurchaseExpanded" class="nav-chevron" :size="16" />
+            <ChevronRight v-else class="nav-chevron" :size="16" />
+          </button>
+          <div v-if="buyerPurchaseExpanded" class="buyer-subnav">
+            <button :class="{ active: buyerView === 'benefits' }" type="button" @click="switchBuyerPurchaseView('benefits')">权益中心</button>
+            <button :class="{ active: buyerView === 'products' }" type="button" @click="switchBuyerPurchaseView('products')">全部商品</button>
+          </div>
+        </div>
         <button :class="{ active: buyerView === 'orders' }" type="button" @click="navigate('/purchase/orders')"><Box :size="20" />订单管理</button>
-        <button type="button"><WalletCards :size="20" />财务管理</button>
+        <div class="buyer-nav-group">
+          <button :class="{ active: buyerView === 'balanceRecords' || buyerView === 'topUpRecords' || buyerView === 'recharge' }" type="button" @click="toggleBuyerFinanceMenu">
+            <WalletCards :size="20" />
+            <span>财务管理</span>
+            <ChevronDown v-if="buyerFinanceExpanded" class="nav-chevron" :size="16" />
+            <ChevronRight v-else class="nav-chevron" :size="16" />
+          </button>
+          <div v-if="buyerFinanceExpanded" class="buyer-subnav">
+            <button :class="{ active: buyerView === 'balanceRecords' }" type="button" @click="switchBuyerFinanceView('balanceRecords')">余额明细</button>
+            <button :class="{ active: buyerView === 'topUpRecords' }" type="button" @click="switchBuyerFinanceView('topUpRecords')">加款记录</button>
+            <button :class="{ active: buyerView === 'recharge' }" type="button" @click="switchBuyerFinanceView('recharge')">余额充值</button>
+          </div>
+        </div>
         <button type="button"><CreditCard :size="20" />卡密中心</button>
         <button type="button"><BarChart3 :size="20" />报表中心</button>
         <button type="button"><Package :size="20" />合同管理</button>
@@ -2598,10 +2810,10 @@ async function requestForm<T>(
       <header class="buyer-topbar">
         <h1 v-if="buyerView === 'dashboard'">采购工作台</h1>
         <h1 v-else-if="buyerView === 'orders'">订单管理</h1>
-        <nav v-else-if="buyerView === 'benefits' || buyerView === 'products'" class="buyer-section-tabs" aria-label="采购中心栏目">
-          <button :class="{ active: buyerView === 'benefits' }" type="button" @click="switchBuyerView('benefits')">权益中心</button>
-          <button :class="{ active: buyerView === 'products' }" type="button" @click="switchBuyerView('products')">全部商品</button>
-        </nav>
+        <h1 v-else-if="buyerView === 'balanceRecords'">余额明细</h1>
+        <h1 v-else-if="buyerView === 'topUpRecords'">加款记录</h1>
+        <h1 v-else-if="buyerView === 'recharge'">余额充值</h1>
+        <h1 v-else>采购中心</h1>
         <div class="admin-user">
           <button class="icon-button" type="button" aria-label="通知">
             <Bell :size="20" />
@@ -2844,6 +3056,54 @@ async function requestForm<T>(
           <p v-if="buyerOrderLoading" class="toolbar-note">正在加载订单...</p>
         </section>
 
+        <section v-else-if="buyerView === 'balanceRecords'" class="buyer-store-view buyer-order-view">
+          <div class="buyer-order-toolbar balance-record-toolbar">
+            <select v-model="buyerBalanceRecordFilters.recordType">
+              <option value="">全部类型</option>
+              <option value="PURCHASE">购买商品</option>
+              <option value="ORDER_REFUND">订单退款</option>
+              <option value="ADMIN_ADD">财务加款</option>
+              <option value="ADMIN_DEDUCT">财务扣款</option>
+              <option value="SELF_RECHARGE">自助充值</option>
+            </select>
+            <input v-model="buyerBalanceRecordFilters.orderNo" placeholder="请输入订单号" type="text" @keyup.enter="loadBuyerBalanceRecords" />
+            <input v-model="buyerBalanceRecordFilters.startTime" placeholder="开始时间" type="text" />
+            <input v-model="buyerBalanceRecordFilters.endTime" placeholder="结束时间" type="text" />
+            <button class="primary-action" type="button" @click="loadBuyerBalanceRecords">查询</button>
+            <button class="soft-action" type="button" @click="resetBuyerBalanceRecordFilters">重置</button>
+          </div>
+          <p v-if="buyerBalanceRecordMessage" class="buyer-message">{{ buyerBalanceRecordMessage }}</p>
+          <div class="buyer-balance-record-table">
+            <div class="buyer-balance-record-row table-head" role="row">
+              <span>类型</span>
+              <span>交易前</span>
+              <span>交易金额</span>
+              <span>交易后</span>
+              <span>订单号</span>
+              <span>备注</span>
+              <span>创建时间</span>
+            </div>
+            <div v-for="record in buyerBalanceRecords" :key="record.id" class="buyer-balance-record-row" role="row">
+              <span>{{ balanceRecordTypeLabel(record.recordType) }}</span>
+              <span>{{ formatMoney(record.beforeBalance) }}</span>
+              <strong :class="balanceChangeClass(record.changeAmount)">{{ formatMoney(record.changeAmount) }}</strong>
+              <span>{{ formatMoney(record.afterBalance) }}</span>
+              <span>{{ record.orderNo || '-' }}</span>
+              <span>{{ record.remark || '-' }}</span>
+              <span>{{ formatDateTime(record.createTime) }}</span>
+            </div>
+            <div v-if="!buyerBalanceRecords.length && !buyerBalanceRecordLoading" class="empty-row">暂无余额明细</div>
+          </div>
+          <div class="buyer-pagination">
+            <span>共 {{ buyerBalanceRecords.length }} 条</span>
+          </div>
+          <p v-if="buyerBalanceRecordLoading" class="toolbar-note">正在加载余额明细...</p>
+        </section>
+
+        <section v-else-if="buyerView === 'topUpRecords' || buyerView === 'recharge'" class="buyer-store-view">
+          <div class="empty-row">{{ buyerView === 'topUpRecords' ? '加款记录' : '余额充值' }}功能正在完善中</div>
+        </section>
+
         <section v-else class="quick-section">
           <h2>常用功能</h2>
           <div class="quick-grid">
@@ -2855,7 +3115,7 @@ async function requestForm<T>(
               <span class="quick-icon"><ReceiptText :size="40" :stroke-width="2.1" /></span>
               <span>订单记录</span>
             </button>
-            <button class="quick-card" type="button" aria-label="资金流水">
+            <button class="quick-card" type="button" aria-label="资金流水" @click="navigate('/finance/balance-records')">
               <span class="quick-icon"><Banknote :size="40" :stroke-width="2.1" /></span>
               <span>资金流水</span>
             </button>
@@ -3384,7 +3644,7 @@ async function requestForm<T>(
               </span>
               <span>{{ formatDateTime(user.lastLoginTime) }}</span>
               <span class="table-actions">
-                <button class="text-action edit" type="button" @click="adjustAdminUserBalance(user)">调余额</button>
+                <button class="text-action edit" type="button" @click="openBalanceAdjustModal(user)">调余额</button>
                 <button class="text-action" :class="user.status === 1 ? 'danger' : 'edit'" type="button" @click="changeAdminUserStatus(user)">
                   {{ user.status === 1 ? '禁用' : '启用' }}
                 </button>
@@ -3502,6 +3762,76 @@ async function requestForm<T>(
           </div>
           <footer class="table-footer">
             <span>共 {{ adminOrders.length }} 条记录</span>
+          </footer>
+        </section>
+      </div>
+
+      <div v-else-if="adminView === 'balanceRecord'" class="admin-content admin-order-page">
+        <section class="page-heading">
+          <h2>余额明细</h2>
+          <div class="category-toolbar admin-order-toolbar">
+            <label>
+              <span>用户</span>
+              <input v-model="adminBalanceRecordFilters.userKeyword" placeholder="用户ID/账号" type="text" @keyup.enter="loadAdminBalanceRecords" />
+            </label>
+            <label>
+              <span>类型</span>
+              <select v-model="adminBalanceRecordFilters.recordType">
+                <option value="">全部类型</option>
+                <option value="PURCHASE">购买商品</option>
+                <option value="ORDER_REFUND">订单退款</option>
+                <option value="ADMIN_ADD">财务加款</option>
+                <option value="ADMIN_DEDUCT">财务扣款</option>
+                <option value="SELF_RECHARGE">自助充值</option>
+              </select>
+            </label>
+            <label>
+              <span>订单号</span>
+              <input v-model="adminBalanceRecordFilters.orderNo" placeholder="输入订单号" type="text" @keyup.enter="loadAdminBalanceRecords" />
+            </label>
+            <label>
+              <span>开始时间</span>
+              <input v-model="adminBalanceRecordFilters.startTime" placeholder="yyyy-MM-dd HH:mm:ss" type="text" />
+            </label>
+            <label>
+              <span>结束时间</span>
+              <input v-model="adminBalanceRecordFilters.endTime" placeholder="yyyy-MM-dd HH:mm:ss" type="text" />
+            </label>
+            <span class="toolbar-actions">
+              <button class="primary-action" type="button" @click="loadAdminBalanceRecords">查询</button>
+              <button class="soft-action" type="button" @click="resetAdminBalanceRecordFilters">重置</button>
+            </span>
+            <p v-if="adminBalanceRecordLoading" class="toolbar-note">正在加载余额明细...</p>
+          </div>
+          <p v-if="adminBalanceRecordMessage" class="category-message">{{ adminBalanceRecordMessage }}</p>
+          <div class="category-table admin-balance-record-panel" role="table" aria-label="余额明细列表">
+            <div class="admin-balance-record-row table-head" role="row">
+              <span>用户</span>
+              <span>类型</span>
+              <span>交易前</span>
+              <span>交易金额</span>
+              <span>交易后</span>
+              <span>订单号</span>
+              <span>备注</span>
+              <span>创建时间</span>
+            </div>
+            <div v-for="record in adminBalanceRecords" :key="record.id" class="admin-balance-record-row" role="row">
+              <span>
+                <strong>{{ record.username }}</strong>
+                <small>ID：{{ record.userId }}</small>
+              </span>
+              <span>{{ balanceRecordTypeLabel(record.recordType) }}</span>
+              <span>{{ formatMoney(record.beforeBalance) }}</span>
+              <strong :class="balanceChangeClass(record.changeAmount)">{{ formatMoney(record.changeAmount) }}</strong>
+              <span>{{ formatMoney(record.afterBalance) }}</span>
+              <span>{{ record.orderNo || '-' }}</span>
+              <span>{{ record.remark || '-' }}</span>
+              <span>{{ formatDateTime(record.createTime) }}</span>
+            </div>
+            <div v-if="!adminBalanceRecords.length && !adminBalanceRecordLoading" class="empty-row">暂无余额明细</div>
+          </div>
+          <footer class="table-footer">
+            <span>共 {{ adminBalanceRecords.length }} 条记录</span>
           </footer>
         </section>
       </div>
@@ -4158,6 +4488,39 @@ async function requestForm<T>(
           <button class="soft-action" type="button" @click="productModalOpen = false">取消</button>
           <button class="primary-action" type="submit" :disabled="savingProduct || !productForm.name.trim()">
             {{ savingProduct ? '保存中...' : '保存' }}
+          </button>
+        </footer>
+      </form>
+    </div>
+
+    <div v-if="balanceAdjustModalOpen && balanceAdjustUser" class="modal-mask" role="dialog" aria-modal="true">
+      <form class="category-modal balance-adjust-modal" @submit.prevent="adjustAdminUserBalance">
+        <header>
+          <h2>调整余额</h2>
+          <button type="button" aria-label="关闭" @click="balanceAdjustModalOpen = false"><X :size="18" /></button>
+        </header>
+
+        <div class="sale-preview">
+          <span>{{ balanceAdjustUser.username }} 当前余额</span>
+          <strong>{{ formatMoney(balanceAdjustUser.balance) }}</strong>
+        </div>
+
+        <label>
+          <span>调整金额</span>
+          <input v-model.number="balanceAdjustForm.amount" step="0.01" placeholder="正数加款，负数扣款" type="number" />
+        </label>
+
+        <label>
+          <span>备注</span>
+          <textarea v-model="balanceAdjustForm.remark" maxlength="255" placeholder="请输入财务操作备注"></textarea>
+        </label>
+
+        <p v-if="adminUserMessage" class="category-message">{{ adminUserMessage }}</p>
+
+        <footer>
+          <button class="soft-action" type="button" @click="balanceAdjustModalOpen = false">取消</button>
+          <button class="primary-action" type="submit" :disabled="balanceAdjustSaving || !balanceAdjustForm.remark.trim() || Number(balanceAdjustForm.amount) === 0">
+            {{ balanceAdjustSaving ? '保存中...' : '确认调整' }}
           </button>
         </footer>
       </form>

@@ -44,6 +44,24 @@ CREATE TABLE IF NOT EXISTS `admin` (
     UNIQUE KEY `uk_admin_phone` (`phone`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='管理员表';
 
+-- 用户余额流水表：记录采购、退款、财务操作和自助充值产生的余额变化
+CREATE TABLE IF NOT EXISTS `user_balance_record` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '余额流水ID',
+    `user_id` BIGINT NOT NULL COMMENT '用户ID',
+    `username` VARCHAR(50) NOT NULL COMMENT '用户名快照',
+    `record_type` VARCHAR(20) NOT NULL COMMENT '流水类型：PURCHASE-购买商品，ORDER_REFUND-订单退款，ADMIN_ADD-财务加款，ADMIN_DEDUCT-财务扣款，SELF_RECHARGE-自助充值',
+    `before_balance` DECIMAL(10,2) NOT NULL DEFAULT '0.00' COMMENT '交易前金额',
+    `change_amount` DECIMAL(10,2) NOT NULL DEFAULT '0.00' COMMENT '交易金额，收入为正，支出为负',
+    `after_balance` DECIMAL(10,2) NOT NULL DEFAULT '0.00' COMMENT '交易后金额',
+    `order_no` VARCHAR(40) DEFAULT NULL COMMENT '关联订单号',
+    `remark` VARCHAR(255) DEFAULT NULL COMMENT '备注',
+    `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_user_balance_record_user_time` (`user_id`, `create_time`),
+    KEY `idx_user_balance_record_type_time` (`record_type`, `create_time`),
+    KEY `idx_user_balance_record_order_no` (`order_no`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户余额流水表';
+
 -- 商品分类表：目前约束为最多两级分类
 CREATE TABLE IF NOT EXISTS `product_category` (
     `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '分类ID',

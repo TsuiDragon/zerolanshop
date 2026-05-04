@@ -259,6 +259,11 @@ button {
   gap: 8px;
 }
 
+.buyer-nav-group {
+  display: grid;
+  gap: 6px;
+}
+
 .buyer-nav button {
   display: flex;
   align-items: center;
@@ -273,10 +278,40 @@ button {
   font-size: 16px;
 }
 
+.buyer-nav button span {
+  min-width: 0;
+}
+
+.nav-chevron {
+  margin-left: auto;
+}
+
 .buyer-nav button.active,
 .buyer-nav button:hover {
   color: #1f67ff;
   background: #eef5ff;
+}
+
+.buyer-subnav {
+  display: grid;
+  gap: 4px;
+  padding: 0 0 2px 48px;
+}
+
+.buyer-subnav button {
+  min-height: 36px;
+  justify-content: flex-start;
+  border-radius: 7px;
+  padding: 0 12px;
+  color: #5b6b83;
+  font-size: 14px;
+}
+
+.buyer-subnav button.active,
+.buyer-subnav button:hover {
+  color: #1f67ff;
+  background: #eef5ff;
+  font-weight: 600;
 }
 
 .buyer-main {
@@ -296,37 +331,6 @@ button {
 .buyer-topbar h1 {
   margin: 0;
   font-size: 25px;
-}
-
-.buyer-section-tabs {
-  display: flex;
-  align-self: stretch;
-  gap: 24px;
-}
-
-.buyer-section-tabs button {
-  position: relative;
-  min-width: 72px;
-  border: 0;
-  color: #213047;
-  background: transparent;
-  cursor: pointer;
-  font: inherit;
-}
-
-.buyer-section-tabs button.active {
-  color: #0f57df;
-  font-weight: 600;
-}
-
-.buyer-section-tabs button.active::after {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: 2px;
-  background: #1f67ff;
-  content: "";
 }
 
 .buyer-content {
@@ -2395,7 +2399,9 @@ button:disabled {
   }
 
   .admin-order-row,
-  .buyer-order-row {
+  .buyer-order-row,
+  .buyer-balance-record-row,
+  .admin-balance-record-row {
     min-width: 1320px;
   }
 
@@ -2698,6 +2704,7 @@ button:disabled {
 }
 
 .buyer-order-table,
+.buyer-balance-record-table,
 .admin-user-row {
   overflow-x: auto;
 }
@@ -2710,9 +2717,18 @@ button:disabled {
   min-height: 300px;
 }
 
+.buyer-balance-record-table {
+  border: 1px solid #e5edf7;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.045);
+}
+
 .buyer-order-row,
 .admin-order-row,
-.admin-user-row {
+.admin-user-row,
+.buyer-balance-record-row,
+.admin-balance-record-row {
   align-items: center;
   border-bottom: 1px solid #e5e7eb;
   display: grid;
@@ -2723,6 +2739,12 @@ button:disabled {
 .buyer-order-row {
   grid-template-columns: 220px 260px 70px 100px 80px 150px 170px 130px 90px;
   min-height: 64px;
+}
+
+.buyer-balance-record-row {
+  grid-template-columns: 120px 120px 120px 120px 220px minmax(160px, 1fr) 170px;
+  min-width: 1080px;
+  min-height: 62px;
 }
 
 .admin-order-page .page-heading {
@@ -2779,6 +2801,12 @@ button:disabled {
   gap: 10px;
 }
 
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .admin-order-page .category-message {
   margin: 0;
 }
@@ -2822,9 +2850,48 @@ button:disabled {
   color: #13233a;
 }
 
+.admin-balance-record-row {
+  grid-template-columns: 170px 120px 110px 120px 110px 210px minmax(180px, 1fr) 170px;
+  min-width: 1200px;
+  color: #13233a;
+}
+
+.admin-balance-record-row > span:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.admin-balance-record-row small {
+  color: #65758b;
+}
+
 .admin-user-row:not(.table-head) {
   min-height: 82px;
   background: #ffffff;
+}
+
+.admin-balance-record-row:not(.table-head),
+.buyer-balance-record-row:not(.table-head) {
+  min-height: 68px;
+  background: #ffffff;
+}
+
+.admin-balance-record-row:not(.table-head):nth-child(odd),
+.buyer-balance-record-row:not(.table-head):nth-child(odd) {
+  background: #f8fbff;
+}
+
+.admin-balance-record-row:not(.table-head):hover,
+.buyer-balance-record-row:not(.table-head):hover {
+  background: #f3f8ff;
+}
+
+.income {
+  color: #0f8a4b;
+}
+
+.expense {
+  color: #d92d20;
 }
 
 .admin-user-row:not(.table-head):nth-child(odd) {
@@ -2976,7 +3043,9 @@ button:disabled {
 
 .buyer-order-row.table-head,
 .admin-order-row.table-head,
-.admin-user-row.table-head {
+.admin-user-row.table-head,
+.buyer-balance-record-row.table-head,
+.admin-balance-record-row.table-head {
   background: #fbfdff;
   color: #1f2a44;
   font-size: 13px;
@@ -3092,10 +3161,6 @@ button:disabled {
     gap: 12px;
     padding-top: 12px;
     padding-bottom: 12px;
-  }
-
-  .buyer-section-tabs {
-    min-height: 42px;
   }
 
   .buyer-nav {

@@ -7,4 +7,5 @@ import java.math.BigDecimal;
 @Data
 public class UserBalanceAdjustRequest {
     private BigDecimal amount;
+    private String remark;
 }
