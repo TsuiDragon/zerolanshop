@@ -61,22 +61,6 @@ CREATE TABLE IF NOT EXISTS `product_category` (
     KEY `idx_category_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='商品分类表';
 
-SET @category_description_exists := (
-    SELECT COUNT(*)
-    FROM information_schema.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'product_category'
-      AND COLUMN_NAME = 'description'
-);
-SET @category_description_sql := IF(
-    @category_description_exists = 0,
-    'ALTER TABLE `product_category` ADD COLUMN `description` VARCHAR(255) DEFAULT NULL COMMENT ''分类描述'' AFTER `icon`',
-    'SELECT 1'
-);
-PREPARE category_description_stmt FROM @category_description_sql;
-EXECUTE category_description_stmt;
-DEALLOCATE PREPARE category_description_stmt;
-
 -- 定价模板表：用于商品根据渠道成本价计算销售价
 CREATE TABLE IF NOT EXISTS `pricing_template` (
     `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '定价模板ID',
@@ -176,37 +160,6 @@ CREATE TABLE IF NOT EXISTS `product` (
     KEY `idx_product_sort` (`sort`, `id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='商品表';
 
-SET @supply_cost_strategy_exists := (
-    SELECT COUNT(*)
-    FROM information_schema.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'product'
-      AND COLUMN_NAME = 'supply_cost_strategy'
-);
-SET @supply_cost_strategy_sql := IF(
-    @supply_cost_strategy_exists = 0,
-    'ALTER TABLE `product` ADD COLUMN `supply_cost_strategy` VARCHAR(20) NOT NULL DEFAULT ''LOWEST'' COMMENT ''渠道成本取价策略：LOWEST-最低价，HIGHEST-最高价'' AFTER `sale_price`',
-    'SELECT 1'
-);
-PREPARE supply_cost_strategy_stmt FROM @supply_cost_strategy_sql;
-EXECUTE supply_cost_strategy_stmt;
-DEALLOCATE PREPARE supply_cost_strategy_stmt;
-
-SET @terminal_limit_price_exists := (
-    SELECT COUNT(*)
-    FROM information_schema.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'product'
-      AND COLUMN_NAME = 'terminal_limit_price'
-);
-SET @terminal_limit_price_sql := IF(
-    @terminal_limit_price_exists = 0,
-    'ALTER TABLE `product` ADD COLUMN `terminal_limit_price` DECIMAL(10,2) DEFAULT NULL COMMENT ''终端限价'' AFTER `sale_price`',
-    'SELECT 1'
-);
-PREPARE terminal_limit_price_stmt FROM @terminal_limit_price_sql;
-EXECUTE terminal_limit_price_stmt;
-DEALLOCATE PREPARE terminal_limit_price_stmt;
 -- Supply channel extension schema.
 CREATE TABLE IF NOT EXISTS `supply_channel` (
     `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '货源渠道ID',
@@ -232,6 +185,7 @@ CREATE TABLE IF NOT EXISTS `product_supply_binding` (
     `channel_product_id` VARCHAR(100) NOT NULL COMMENT '渠道商品ID',
     `channel_product_name` VARCHAR(100) NOT NULL COMMENT '渠道商品名称',
     `channel_cost_price` DECIMAL(10,2) NOT NULL DEFAULT '0.00' COMMENT '渠道成本价',
+    `active` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否生效：0-否，1-是',
     `sort` INT NOT NULL DEFAULT 0 COMMENT '排序号，值越小越靠前',
     `status` TINYINT NOT NULL DEFAULT 1 COMMENT '状态：0-禁用，1-启用',
     `create_time` DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -241,22 +195,6 @@ CREATE TABLE IF NOT EXISTS `product_supply_binding` (
     KEY `idx_product_supply_binding_channel` (`channel_id`),
     KEY `idx_product_supply_binding_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='商品货源绑定表';
-
-SET @product_supply_binding_active_exists := (
-    SELECT COUNT(*)
-    FROM information_schema.COLUMNS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'product_supply_binding'
-      AND COLUMN_NAME = 'active'
-);
-SET @product_supply_binding_active_sql := IF(
-    @product_supply_binding_active_exists = 0,
-    'ALTER TABLE `product_supply_binding` ADD COLUMN `active` TINYINT(1) NOT NULL DEFAULT 0 COMMENT ''是否生效：0-否，1-是'' AFTER `channel_cost_price`',
-    'SELECT 1'
-);
-PREPARE product_supply_binding_active_stmt FROM @product_supply_binding_active_sql;
-EXECUTE product_supply_binding_active_stmt;
-DEALLOCATE PREPARE product_supply_binding_active_stmt;
 
 CREATE TABLE IF NOT EXISTS `virtual_order` (
     `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '订单ID',
